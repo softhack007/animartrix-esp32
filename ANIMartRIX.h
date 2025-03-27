@@ -25,7 +25,7 @@ License CC BY-NC 3.0
 */
 
 #include <vector>
-#include <FastLED.h>
+// add this includes to your main sketch #include <FastLED.h>
 
 #define num_oscillators 10
 
