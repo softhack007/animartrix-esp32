@@ -105,6 +105,11 @@ bool  serpentine;
 
 std::vector<std::vector<float>> polar_theta;        // look-up table for polar angles
 std::vector<std::vector<float>> distance;           // look-up table for polar distances
+//bool lut_rendered = false; // to spped up render_polar_lookup_table
+//float lut_cx = 0.0f;
+//float lut_cy = 0.0f;
+//int lut_num_x = -1;
+//int lut_num_y = -1;
 
 unsigned long a, b, c;                  // for time measurements
 
@@ -340,9 +345,23 @@ inline float render_value(render_parameters &animation) const {
 // given a static polar origin we can precalculate 
 // the polar coordinates
 
+//static inline void allocate_lookup_tables(int width, int height) {
+//    polar_theta = (float*)ps_malloc(width * height * sizeof(float));
+//    distance = (float*)ps_malloc(width * height * sizeof(float));
+//}
+// Access: polar_theta[y * width + x] instead of polar_theta[x][y]
 
 // softhack007: this function urgently needs optimization - get rid of vector, use PSRAM if possible, use realloc to expand but never shrink
 inline void render_polar_lookup_table(float cx, float cy) {
+
+#if 0
+  bool doRender = lut_rendered == false;
+  if ((lut_cx != cx) || ((lut_cy != cy))) doRender = true;
+  if ((lut_num_x != num_x) || ((lut_num_y != num_y))) doRender = true;
+
+  if (doRender)
+  {
+#endif
   polar_theta.resize(num_x, std::vector<float>(num_y, 0.0f));
   distance.resize(num_x, std::vector<float>(num_y, 0.0f));
 
@@ -356,6 +375,14 @@ inline void render_polar_lookup_table(float cx, float cy) {
       polar_theta[xx][yy] = atan2f(dy, dx); 
     }
   }
+#if 0
+  }
+  lut_rendered = true;
+  lut_cx = cx;
+  lut_cy = cy;
+  lut_num_x = num_x;
+  lut_num_y = num_y;
+#endif
 }
 
 
