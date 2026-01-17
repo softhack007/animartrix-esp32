@@ -171,13 +171,13 @@ void setSpeedFactor(float speed)  {
 
 // Dynamic darkening methods:
 
-float subtract(float &a, float&b) {
+static inline float subtract(float &a, float&b) {
 
   return a - b;
 }
 
 
-float multiply(float &a, float&b) {
+static inline float multiply(float &a, float&b) {
 
   return a * b / 255.f;
 }
@@ -186,7 +186,7 @@ float multiply(float &a, float&b) {
 // makes low brightness darker
 // sets the black point high = more contrast 
 // animation.low_limit should be 0 for best results
-float colorburn(float &a, float&b) {  
+static inline float colorburn(float &a, float&b) {  
 
   return (1-((1-a/255.f) / (b/255.f)))*255.f;
 }
@@ -194,7 +194,7 @@ float colorburn(float &a, float&b) {
 
 // Dynamic brightening methods
 
-float add(float &a, float&b) {
+static inline float add(float &a, float&b) {
 
   return a + b;
 }
@@ -202,13 +202,13 @@ float add(float &a, float&b) {
 
 // makes bright even brighter
 // reduces contrast
-float screen(float &a, float&b) {
+static inline float screen(float &a, float&b) {
 
   return (1 - (1 - a/255.f) * (1 - b/255.f))*255.f;
 }
 
 
-float colordodge(float &a, float&b) {  
+static inline float colordodge(float &a, float&b) {  
 
   return (a/(255.f-b)) * 255.f;
 }
@@ -219,9 +219,9 @@ float colordodge(float &a, float&b) {
  -  make permutation constant byte, obsoletes init(), lookup % 256
 */
 
-float fade(float t){ return t * t * t * (t * (t * 6 - 15) + 10); }
-float lerp(float t, float a, float b){ return a + t * (b - a); }
-float grad(int hash, float x, float y, float z)
+static inline float fade(float t){ return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); }
+static inline float lerp(float t, float a, float b){ return a + t * (b - a); }
+static inline float grad(int hash, float x, float y, float z)
 {
 int    h = hash & 15;          /* CONVERT LO 4 BITS OF HASH CODE */
 float  u = h < 8 ? x : y,      /* INTO 12 GRADIENT DIRECTIONS.   */
@@ -231,7 +231,7 @@ return ((h&1) == 0 ? u : -u) + ((h&2) == 0 ? v : -v);
 
 #define P(x) pNoise[(x) & 255]
 
-float pnoise(float x, float y, float z) {
+static inline float pnoise(float x, float y, float z) {
   
 int   X = (int)floorf(x) & 255,             /* FIND UNIT CUBE THAT */
       Y = (int)floorf(y) & 255,             /* CONTAINS POINT.     */
@@ -260,7 +260,7 @@ return lerp(w,lerp(v,lerp(u, grad(P(AA  ), x, y, z),    /* AND ADD */
 }
 
 
-void calculate_oscillators(oscillators &timings) { 
+void calculate_oscillators(oscillators &timings) const { 
 
   double runtime = millis() * timings.master_speed * speed_factor;  // global anaimation speed
 
@@ -278,7 +278,7 @@ void calculate_oscillators(oscillators &timings) {
 }
 
 
-void run_default_oscillators(){
+void run_default_oscillators() const {
 
   timings.ratio[0] = 1;           // speed ratios for the oscillators, higher values = faster transitions
   timings.ratio[1] = 2;
@@ -311,7 +311,7 @@ void run_default_oscillators(){
 // Calculate the noise value at this point based on the 5 dimensional manipulation of 
 // the underlaying coordinates.
 
-float render_value(render_parameters &animation) {
+inline float render_value(render_parameters &animation) const {
 
   // convert polar coordinates back to cartesian ones
 
@@ -339,8 +339,8 @@ float render_value(render_parameters &animation) {
 // given a static polar origin we can precalculate 
 // the polar coordinates
 
-void render_polar_lookup_table(float cx, float cy) {
 
+inline void render_polar_lookup_table(float cx, float cy) {
   polar_theta.resize(num_x, std::vector<float>(num_y, 0.0f));
   distance.resize(num_x, std::vector<float>(num_y, 0.0f));
 
@@ -361,13 +361,27 @@ void render_polar_lookup_table(float cx, float cy) {
 // float mapping maintaining 32 bit precision
 // we keep values with high resolution for potential later usage
 
-float map_float(float x, float in_min, float in_max, float out_min, float out_max) { 
-  
-  float result = (x-in_min) * (out_max-out_min) / (in_max-in_min) + out_min;
-  if (result < out_min) result = out_min;
-  if( result > out_max) result = out_max;
-
-  return result; 
+static inline float map_float(float x, float in_min, float in_max, float out_min, float out_max) { 
+#if 0
+  if (in_max > in_min) {
+#else
+  if (in_max == in_min) return out_min; // avoid div/0
+  if (in_max < in_min) {
+    std::swap(in_max, in_min);
+    std::swap(out_max, out_min);
+  }
+#endif
+    if (x < in_min) return out_min;       // too small
+    if (x > in_max) return out_max;       // too big
+    return (x-in_min) * (out_max-out_min) / (in_max-in_min) + out_min; // in range -> map
+#if 0
+  } else {
+    float result = (x-in_min) * (out_max-out_min) / (in_max-in_min) + out_min;
+    if (result < out_min) result = out_min;
+    if( result > out_max) result = out_max;
+    return result; 
+  }
+#endif
 }
 
 
@@ -390,13 +404,13 @@ void write_pixel_to_framebuffer(int x, int y, rgb &pixel) {
 // This enables to play freely with random equations for the colormapping
 // without causing flicker by accidentally missing the valid target range.
 
-rgb rgb_sanity_check(rgb &pixel) {
+static inline rgb rgb_sanity_check(rgb &pixel) {
 
       // rescue data if possible, return absolute value
       //if (pixel.red < 0)     pixel.red = fabsf(pixel.red);
       //if (pixel.green < 0) pixel.green = fabsf(pixel.green);
       //if (pixel.blue < 0)   pixel.blue = fabsf(pixel.blue);
-
+#if 0
       // Can never be negative colour
       if (pixel.red < 0)     pixel.red = 0;
       if (pixel.green < 0) pixel.green = 0;
@@ -407,17 +421,24 @@ rgb rgb_sanity_check(rgb &pixel) {
       if (pixel.red   > 255)   pixel.red = 255;
       if (pixel.green > 255) pixel.green = 255;
       if (pixel.blue  > 255)  pixel.blue = 255;
+#else
+      // use faster min/max templates
+      pixel.red = max(min(pixel.red, 255.0f), 0.0f);
+      pixel.green = max(min(pixel.green, 255.0f), 0.0f);
+      pixel.blue = max(min(pixel.blue, 255.0f), 0.0f);
+#endif
 
       return pixel;
 }
 
 
 // find the right led index according to you LED matrix wiring
-
-uint16_t xy(uint8_t x, uint8_t y) {
+inline uint16_t xy(uint8_t x, uint8_t y) {
+#ifndef ANIMartRIX_NO_SERPENTINE
   if (serpentine &&  y & 1)                             // check last bit
     return (y + 1) * num_x - 1 - x;      // reverse every second line for a serpentine lled layout
   else
+#endif
     return y * num_x + x;                // use this equation only for a line by line layout
 }                                        // remove the previous 3 lines of code in this case
 
