@@ -45,6 +45,12 @@ class PSRAMAllocator {
 public:
   using value_type = T;
   
+  // rebind is required for C++11/C++14 compatibility
+  template <typename U>
+  struct rebind {
+    using other = PSRAMAllocator<U>;
+  };
+  
   PSRAMAllocator() noexcept = default;
   
   template <typename U>
