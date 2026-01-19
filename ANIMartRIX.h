@@ -63,10 +63,11 @@ public:
     
     // Use heap_caps_malloc_prefer to try PSRAM first, then fall back to internal RAM.
     // The second argument '2' is the number of capability pairs to try.
-    // For types with sizeof >= 4 bytes (like float), use MALLOC_CAP_32BIT for proper alignment.
-    // For smaller types, use MALLOC_CAP_8BIT which is less restrictive.
+    // For types >= 4 bytes (like float, int32_t, double), use MALLOC_CAP_32BIT for proper alignment.
+    // For types < 4 bytes (like char, short), use MALLOC_CAP_8BIT which is less restrictive.
+    constexpr size_t ALIGNMENT_THRESHOLD = 4;
     void* p;
-    if (sizeof(T) >= 4) {
+    if (sizeof(T) >= ALIGNMENT_THRESHOLD) {
       // 32-bit or larger types: use 32-bit alignment for optimal performance
       p = heap_caps_malloc_prefer(n * sizeof(T), 2, 
                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_32BIT, 
