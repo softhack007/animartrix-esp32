@@ -27,6 +27,62 @@ License CC BY-NC 3.0
 #include <vector>
 // add this includes to your main sketch #include <FastLED.h>
 
+// Custom allocator for ESP32 with PSRAM to ensure vector arrays are allocated in PSRAM
+#ifdef ESP32
+#if defined(BOARD_HAS_PSRAM) && defined(CONFIG_IDF_TARGET_ESP32S3)
+#include <esp_heap_caps.h>
+
+template <typename T>
+class PSRAMAllocator {
+public:
+  using value_type = T;
+  
+  PSRAMAllocator() noexcept {}
+  
+  template <typename U>
+  PSRAMAllocator(const PSRAMAllocator<U>&) noexcept {}
+  
+  T* allocate(std::size_t n) {
+    if (n > std::size_t(-1) / sizeof(T)) {
+      throw std::bad_alloc();
+    }
+    void* p = ps_malloc(n * sizeof(T));
+    if (!p) {
+      throw std::bad_alloc();
+    }
+    return static_cast<T*>(p);
+  }
+  
+  void deallocate(T* p, std::size_t) noexcept {
+    free(p);
+  }
+};
+
+template <typename T, typename U>
+bool operator==(const PSRAMAllocator<T>&, const PSRAMAllocator<U>&) noexcept {
+  return true;
+}
+
+template <typename T, typename U>
+bool operator!=(const PSRAMAllocator<T>&, const PSRAMAllocator<U>&) noexcept {
+  return false;
+}
+
+// Define the vector type to use
+template <typename T>
+using psram_vector = std::vector<T, PSRAMAllocator<T>>;
+
+#else
+// Fallback to standard vector when PSRAM is not available
+template <typename T>
+using psram_vector = std::vector<T>;
+#endif
+#else
+// Fallback to standard vector for non-ESP32 platforms
+template <typename T>
+using psram_vector = std::vector<T>;
+#endif
+
 #define num_oscillators 10
 
 
@@ -102,8 +158,8 @@ float radial_filter_radius = 23.0;      // on 32x32, use 11 for 16x16
 
 bool  serpentine;
 
-std::vector<std::vector<float>> polar_theta;        // look-up table for polar angles
-std::vector<std::vector<float>> distance;           // look-up table for polar distances
+psram_vector<psram_vector<float>> polar_theta;        // look-up table for polar angles
+psram_vector<psram_vector<float>> distance;           // look-up table for polar distances
 
 unsigned long a, b, c;                  // for time measurements
 
@@ -341,8 +397,8 @@ float render_value(render_parameters &animation) {
 
 void render_polar_lookup_table(float cx, float cy) {
 
-  polar_theta.resize(num_x, std::vector<float>(num_y, 0.0f));
-  distance.resize(num_x, std::vector<float>(num_y, 0.0f));
+  polar_theta.resize(num_x, psram_vector<float>(num_y, 0.0f));
+  distance.resize(num_x, psram_vector<float>(num_y, 0.0f));
 
   for (int xx = 0; xx < num_x; xx++) {
     for (int yy = 0; yy < num_y; yy++) {
