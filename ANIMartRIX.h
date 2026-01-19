@@ -60,7 +60,9 @@ public:
     if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
       throw std::bad_alloc();
     }
-    // Use heap_caps_malloc_prefer to try PSRAM first, then fall back to internal RAM
+    // Use heap_caps_malloc_prefer to try PSRAM first, then fall back to internal RAM.
+    // The second argument '2' is the number of capability pairs to try:
+    // here we try MALLOC_CAP_SPIRAM first, then MALLOC_CAP_8BIT as a fallback.
     void* p = heap_caps_malloc_prefer(n * sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_8BIT);
     if (!p) {
       throw std::bad_alloc();
