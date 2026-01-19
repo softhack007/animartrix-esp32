@@ -31,7 +31,13 @@ License CC BY-NC 3.0
 #ifdef ESP32
 #if defined(BOARD_HAS_PSRAM) && defined(CONFIG_IDF_TARGET_ESP32S3)
 #include <esp_heap_caps.h>
+#include <limits>
 
+// PSRAMAllocator: Custom allocator that forces allocation into PSRAM (external RAM)
+// on ESP32S3 boards with PSRAM support. This ensures that large lookup tables
+// use PSRAM instead of internal RAM, which is limited. Each row of the 2D vector
+// is typically ~256 bytes, and without this allocator, the framework would allocate
+// them in internal RAM instead of PSRAM.
 template <typename T>
 class PSRAMAllocator {
 public:
@@ -54,7 +60,7 @@ public:
   PSRAMAllocator(const PSRAMAllocator<U>&) noexcept {}
   
   T* allocate(std::size_t n) {
-    if (n > std::size_t(-1) / sizeof(T)) {
+    if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
       throw std::bad_alloc();
     }
     void* p = heap_caps_malloc(n * sizeof(T), MALLOC_CAP_SPIRAM);
