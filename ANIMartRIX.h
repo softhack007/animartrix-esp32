@@ -30,6 +30,17 @@ License CC BY-NC 3.0
 
 #define num_oscillators 10
 
+#if 0
+  #define vXY(x,y) [(x)][(y)]  // for comparison
+  #undef USE_ARRAY
+#warning vector mode
+#else
+  #define USE_ARRAY
+  // Access: polar_theta[y * width + x] instead of polar_theta[x][y]
+  // macro to map 2D vector to c array
+  #define vXY(x,y) [min(maxArr, size_t((num_y * (x)) + (y)))]
+#warning array mode
+#endif
 
 struct render_parameters {
   float center_x;   // center of the matrix
@@ -103,13 +114,19 @@ float radial_filter_radius = 23.0;      // on 32x32, use 11 for 16x16
 
 bool  serpentine;
 
+#ifndef USE_ARRAY
 std::vector<std::vector<float>> polar_theta;        // look-up table for polar angles
 std::vector<std::vector<float>> distance;           // look-up table for polar distances
-//bool lut_rendered = false; // to spped up render_polar_lookup_table
-//float lut_cx = 0.0f;
-//float lut_cy = 0.0f;
-//int lut_num_x = -1;
-//int lut_num_y = -1;
+#else
+float *polar_theta = nullptr;
+float *distance = nullptr;
+size_t maxArr = 0;
+#endif
+bool lut_rendered = false; // to speed up render_polar_lookup_table
+float lut_cx = 0.0f;
+float lut_cy = 0.0f;
+int lut_num_x = -1;
+int lut_num_y = -1;
 
 unsigned long a, b, c;                  // for time measurements
 
@@ -354,16 +371,28 @@ inline float render_value(render_parameters &animation) const {
 // softhack007: this function urgently needs optimization - get rid of vector, use PSRAM if possible, use realloc to expand but never shrink
 inline void render_polar_lookup_table(float cx, float cy) {
 
-#if 0
+#ifndef USE_ARRAY
+  bool doRender = true;
+  if (lut_rendered == false)  doRender = true;
+#else
   bool doRender = lut_rendered == false;
+  if ((polar_theta == nullptr) || (distance==nullptr)) doRender = true;
+#endif
   if ((lut_cx != cx) || ((lut_cy != cy))) doRender = true;
   if ((lut_num_x != num_x) || ((lut_num_y != num_y))) doRender = true;
 
   if (doRender)
   {
-#endif
+#ifndef USE_ARRAY
   polar_theta.resize(num_x, std::vector<float>(num_y, 0.0f));
   distance.resize(num_x, std::vector<float>(num_y, 0.0f));
+#else
+  if (polar_theta) free(polar_theta); polar_theta = nullptr;
+  if (distance)    free(distance); distance = nullptr;
+  maxArr = num_x * num_y;
+  polar_theta = (float*)ps_calloc(maxArr, sizeof(float));
+  distance    = (float*)ps_calloc(maxArr, sizeof(float));
+#endif
 
   for (int xx = 0; xx < num_x; xx++) {
     for (int yy = 0; yy < num_y; yy++) {
@@ -371,18 +400,17 @@ inline void render_polar_lookup_table(float cx, float cy) {
       float dx = xx - cx;
       float dy = yy - cy;
 
-      distance[xx][yy]    = hypotf(dx, dy);
-      polar_theta[xx][yy] = atan2f(dy, dx); 
+      distance vXY(xx,yy)    = hypotf(dx, dy);
+      polar_theta vXY(xx,yy) = atan2f(dy, dx); 
     }
   }
-#if 0
+
   }
   lut_rendered = true;
   lut_cx = cx;
   lut_cy = cy;
   lut_num_x = num_x;
   lut_num_y = num_y;
-#endif
 }
 
 
@@ -545,25 +573,25 @@ void Rotating_Blob() {
       animation.offset_x   = 0;
       animation.offset_y   = 0;
       animation.offset_z   = 100;
-      animation.angle      = polar_theta[x][y] +  move.radial[0];
-      animation.dist       = distance[x][y];
+      animation.angle      = polar_theta vXY(x,y) +  move.radial[0];
+      animation.dist       = distance vXY(x,y);
       animation.z          = move.linear[0];
       animation.low_limit  = -1;
       float show1          = render_value(animation);
       
-      animation.angle      = polar_theta[x][y] - move.radial[1] + show1/512.0f;
-      animation.dist       = distance[x][y] * show1/255.0f;
+      animation.angle      = polar_theta vXY(x,y) - move.radial[1] + show1/512.0f;
+      animation.dist       = distance vXY(x,y) * show1/255.0f;
       animation.low_limit  = 0;
       animation.z          = move.linear[1];
       float show2          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] - move.radial[2] + show1/512.0f;
-      animation.dist       = distance[x][y] * show1/220.0f;
+      animation.angle      = polar_theta vXY(x,y) - move.radial[2] + show1/512.0f;
+      animation.dist       = distance vXY(x,y) * show1/220.0f;
       animation.z          = move.linear[2];
       float show3          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] - move.radial[3] + show1/512.0f;
-      animation.dist       = distance[x][y] * show1/200.0f;
+      animation.angle      = polar_theta vXY(x,y) - move.radial[3] + show1/512.0f;
+      animation.dist       = distance vXY(x,y) * show1/200.0f;
       animation.z          = move.linear[3];
       float show4          = render_value(animation);
 
@@ -603,8 +631,8 @@ void Chasing_Spirals() {
     for (int y = 0; y < num_y; y++) {
   
       // describe and render animation layers
-      animation.angle      = 3 * polar_theta[x][y] +  move.radial[0] - distance[x][y]/3.0f;
-      animation.dist       = distance[x][y];
+      animation.angle      = 3 * polar_theta vXY(x,y) +  move.radial[0] - distance vXY(x,y)/3.0f;
+      animation.dist       = distance vXY(x,y);
       animation.scale_z    = 0.1;  
       animation.scale_y    = 0.1;
       animation.scale_x    = 0.1;
@@ -614,19 +642,19 @@ void Chasing_Spirals() {
       animation.z          = 0;
       float show1          = render_value(animation);
 
-      animation.angle      = 3.0f * polar_theta[x][y] +  move.radial[1] - distance[x][y]/3.0f;
-      animation.dist       = distance[x][y];
+      animation.angle      = 3.0f * polar_theta vXY(x,y) +  move.radial[1] - distance vXY(x,y)/3.0f;
+      animation.dist       = distance vXY(x,y);
       animation.offset_x   = move.linear[1];
       float show2          = render_value(animation);
 
-      animation.angle      = 3.0f * polar_theta[x][y] +  move.radial[2] - distance[x][y]/3.0f;
-      animation.dist       = distance[x][y];
+      animation.angle      = 3.0f * polar_theta vXY(x,y) +  move.radial[2] - distance vXY(x,y)/3.0f;
+      animation.dist       = distance vXY(x,y);
       animation.offset_x   = move.linear[2];
       float show3          = render_value(animation);
 
       // colormapping
       float radius = radial_filter_radius;
-      float radial_filter = (radius - distance[x][y]) / radius;
+      float radial_filter = (radius - distance vXY(x,y)) / radius;
 
       pixel.red   = 3.0f*show1 * radial_filter;
       pixel.green = show2 * radial_filter / 2.0f;
@@ -665,7 +693,7 @@ void Rings() {
       animation.scale_x    = 0.2;
       animation.scale_y    = 0.2;
       animation.scale_z    = 1;
-      animation.dist       = distance[x][y];
+      animation.dist       = distance vXY(x,y);
       animation.offset_y   = -move.linear[0];
       animation.offset_x   = 0;
       float show1          = render_value(animation);
@@ -673,14 +701,14 @@ void Rings() {
        // describe and render animation layers
       animation.angle      = 10;
       
-      animation.dist       = distance[x][y];
+      animation.dist       = distance vXY(x,y);
       animation.offset_y   = -move.linear[1];
       float show2          = render_value(animation);
 
        // describe and render animation layers
       animation.angle      = 12;
       
-      animation.dist       = distance[x][y];
+      animation.dist       = distance vXY(x,y);
       animation.offset_y   = -move.linear[2];
       float show3          = render_value(animation);
 
@@ -717,19 +745,19 @@ void Waves() {
     for (int y = 0; y < num_y; y++) {
   
       // describe and render animation layers
-      animation.angle      = polar_theta[x][y];
+      animation.angle      = polar_theta vXY(x,y);
       animation.scale_x    = 0.1;
       animation.scale_y    = 0.1;
       animation.scale_z    = 0.1;
-      animation.dist       = distance[x][y];
+      animation.dist       = distance vXY(x,y);
       animation.offset_y   = 0;
       animation.offset_x   = 0;
-      animation.z          = 2.0f*distance[x][y] - move.linear[0];
+      animation.z          = 2.0f*distance vXY(x,y) - move.linear[0];
       float show1          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y];
-      animation.dist       = distance[x][y];
-      animation.z          = 2.0f*distance[x][y] - move.linear[1];
+      animation.angle      = polar_theta vXY(x,y);
+      animation.dist       = distance vXY(x,y);
+      animation.z          = 2.0f*distance vXY(x,y) - move.linear[1];
       float show2          = render_value(animation);
 
   
@@ -766,21 +794,21 @@ void Center_Field() {
     for (int y = 0; y < num_y; y++) {
   
       // describe and render animation layers
-      animation.angle      = polar_theta[x][y];
+      animation.angle      = polar_theta vXY(x,y);
       animation.scale_x    = 0.07;
       animation.scale_y    = 0.07;
       animation.scale_z    = 0.1;
-      animation.dist       = 5.0f*sqrtf(distance[x][y]);
+      animation.dist       = 5.0f*sqrtf(distance vXY(x,y));
       animation.offset_y   = move.linear[0];
       animation.offset_x   = 0;
       animation.z          = 0;
       float show1          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y];
+      animation.angle      = polar_theta vXY(x,y);
       animation.scale_x    = 0.07;
       animation.scale_y    = 0.07;
       animation.scale_z    = 0.1;
-      animation.dist       = 4.0f*sqrtf(distance[x][y]);
+      animation.dist       = 4.0f*sqrtf(distance vXY(x,y));
       animation.offset_y   = move.linear[0];
       animation.offset_x   = 0;
       animation.z          = 0;
@@ -824,9 +852,9 @@ void Distance_Experiment() {
     for (int y = 0; y < num_y; y++) {
   
       // describe and render animation layers
-      //animation.dist       = powf(distance[x][y], 0.5f);  // pow is really slow!
-      animation.dist       = sqrtf(distance[x][y]);  // x^^0.5 is the same as sqrt(x)
-      animation.angle      = polar_theta[x][y] + move.radial[0];
+      //animation.dist       = powf(distance vXY(x,y), 0.5f);  // pow is really slow!
+      animation.dist       = sqrtf(distance vXY(x,y));  // x^^0.5 is the same as sqrt(x)
+      animation.angle      = polar_theta vXY(x,y) + move.radial[0];
       animation.scale_x    = 0.07;
       animation.scale_y    = 0.07;
       animation.scale_z    = 0.1;
@@ -836,8 +864,8 @@ void Distance_Experiment() {
       animation.z          = 0;
       float show1          = render_value(animation);
 
-      animation.dist       = powf(distance[x][y], 0.6f);
-      animation.angle      = polar_theta[x][y] + move.noise_angle[2];
+      animation.dist       = powf(distance vXY(x,y), 0.6f);
+      animation.angle      = polar_theta vXY(x,y) + move.noise_angle[2];
       animation.scale_x    = 0.07;
       animation.scale_y    = 0.07;
       animation.scale_z    = 0.1;
@@ -885,8 +913,8 @@ void Caleido1() {
     for (int y = 0; y < num_y; y++) {
   
       // describe and render animation layers
-      animation.dist       = distance[x][y] * (2.0f + move.directional[0]) / 3.0f;
-      animation.angle      = 3 * polar_theta[x][y] + 3.0f * move.noise_angle[0] + move.radial[4];
+      animation.dist       = distance vXY(x,y) * (2.0f + move.directional[0]) / 3.0f;
+      animation.angle      = 3 * polar_theta vXY(x,y) + 3.0f * move.noise_angle[0] + move.radial[4];
       animation.scale_x    = 0.1;
       animation.scale_y    = 0.1;
       animation.scale_z    = 0.1;
@@ -896,27 +924,27 @@ void Caleido1() {
       animation.z          = move.linear[0];
       float show1          = render_value(animation);
 
-      animation.dist       = distance[x][y] * (2.0f + move.directional[1]) / 3.0f;
-      animation.angle      = 4 * polar_theta[x][y] + 3.0f * move.noise_angle[1] + move.radial[4];
+      animation.dist       = distance vXY(x,y) * (2.0f + move.directional[1]) / 3.0f;
+      animation.angle      = 4 * polar_theta vXY(x,y) + 3.0f * move.noise_angle[1] + move.radial[4];
       animation.offset_x   = 2 * move.linear[1];
       animation.z          = move.linear[1];
       float show2          = render_value(animation);
 
-      animation.dist       = distance[x][y] * (2.0f + move.directional[2]) / 3.0f;
-      animation.angle      = 5 * polar_theta[x][y] + 3.0f * move.noise_angle[2] + move.radial[4];
+      animation.dist       = distance vXY(x,y) * (2.0f + move.directional[2]) / 3.0f;
+      animation.angle      = 5 * polar_theta vXY(x,y) + 3.0f * move.noise_angle[2] + move.radial[4];
       animation.offset_y   = 2 * move.linear[2];
       animation.z          = move.linear[2];
       float show3          = render_value(animation);
 
-      animation.dist       = distance[x][y] * (2.0f + move.directional[3]) / 3.0f;
-      animation.angle      = 4 * polar_theta[x][y] + 3.0f * move.noise_angle[3] + move.radial[4];
+      animation.dist       = distance vXY(x,y) * (2.0f + move.directional[3]) / 3.0f;
+      animation.angle      = 4 * polar_theta vXY(x,y) + 3.0f * move.noise_angle[3] + move.radial[4];
       animation.offset_x   = 2 * move.linear[3];
       animation.z          = move.linear[3];
       float show4          = render_value(animation);
       
       // colormapping
       pixel.red   = show1;
-      pixel.green = show3 * distance[x][y] / 10.0f;
+      pixel.green = show3 * distance vXY(x,y) / 10.0f;
       pixel.blue  = (show2 + show4) / 2.0f;
 
       pixel = rgb_sanity_check(pixel);
@@ -950,8 +978,8 @@ void Caleido2() {
     for (int y = 0; y < num_y; y++) {
   
       // describe and render animation layers
-      animation.dist       = distance[x][y] * (2.0f + move.directional[0]) / 3.0f;
-      animation.angle      = 2 * polar_theta[x][y] + 3.0f * move.noise_angle[0] + move.radial[4];
+      animation.dist       = distance vXY(x,y) * (2.0f + move.directional[0]) / 3.0f;
+      animation.angle      = 2 * polar_theta vXY(x,y) + 3.0f * move.noise_angle[0] + move.radial[4];
       animation.scale_x    = 0.1;
       animation.scale_y    = 0.1;
       animation.scale_z    = 0.1;
@@ -961,27 +989,27 @@ void Caleido2() {
       animation.z          = move.linear[0];
       float show1          = render_value(animation);
 
-      animation.dist       = distance[x][y] * (2.0f + move.directional[1]) / 3.0f;
-      animation.angle      = 2 * polar_theta[x][y] + 3.0f * move.noise_angle[1] + move.radial[4];
+      animation.dist       = distance vXY(x,y) * (2.0f + move.directional[1]) / 3.0f;
+      animation.angle      = 2 * polar_theta vXY(x,y) + 3.0f * move.noise_angle[1] + move.radial[4];
       animation.offset_x   = 2 * move.linear[1];
       animation.z          = move.linear[1];
       float show2          = render_value(animation);
 
-      animation.dist       = distance[x][y] * (2.0f + move.directional[2]) / 3.0f;
-      animation.angle      = 2 * polar_theta[x][y] + 3.0f * move.noise_angle[2] + move.radial[4];
+      animation.dist       = distance vXY(x,y) * (2.0f + move.directional[2]) / 3.0f;
+      animation.angle      = 2 * polar_theta vXY(x,y) + 3.0f * move.noise_angle[2] + move.radial[4];
       animation.offset_y   = 2 * move.linear[2];
       animation.z          = move.linear[2];
       float show3          = render_value(animation);
 
-      animation.dist       = distance[x][y] * (2.0f + move.directional[3]) / 3.0f;
-      animation.angle      = 2 * polar_theta[x][y] + 3.0f * move.noise_angle[3] + move.radial[4];
+      animation.dist       = distance vXY(x,y) * (2.0f + move.directional[3]) / 3.0f;
+      animation.angle      = 2 * polar_theta vXY(x,y) + 3.0f * move.noise_angle[3] + move.radial[4];
       animation.offset_x   = 2 * move.linear[3];
       animation.z          = move.linear[3];
       float show4          = render_value(animation);
       
       // colormapping
       pixel.red   = show1;
-      pixel.green = show3 * distance[x][y] / 10.0f;
+      pixel.green = show3 * distance vXY(x,y) / 10.0f;
       pixel.blue  = (show2 + show4) / 2.0f;
 
       pixel = rgb_sanity_check(pixel);
@@ -1015,8 +1043,8 @@ void Caleido3() {
     for (int y = 0; y < num_y; y++) {
   
       // describe and render animation layers
-      animation.dist       = distance[x][y] * (2.0f + move.directional[0]) / 3.0f;
-      animation.angle      = 2 * polar_theta[x][y] + 3.0f * move.noise_angle[0] + move.radial[4];
+      animation.dist       = distance vXY(x,y) * (2.0f + move.directional[0]) / 3.0f;
+      animation.angle      = 2 * polar_theta vXY(x,y) + 3.0f * move.noise_angle[0] + move.radial[4];
       animation.scale_x    = 0.1;// + (move.directional[0] + 2)/100;
       animation.scale_y    = 0.1;// + (move.directional[1] + 2)/100;
       animation.scale_z    = 0.1;
@@ -1026,22 +1054,22 @@ void Caleido3() {
       animation.z          = move.linear[0];
       float show1          = render_value(animation);
 
-      animation.dist       = distance[x][y] * (2.0f + move.directional[1]) / 3.0f;
-      animation.angle      = 2 * polar_theta[x][y] + 3.0f * move.noise_angle[1] + move.radial[4];
+      animation.dist       = distance vXY(x,y) * (2.0f + move.directional[1]) / 3.0f;
+      animation.angle      = 2 * polar_theta vXY(x,y) + 3.0f * move.noise_angle[1] + move.radial[4];
       animation.offset_x   = 2 * move.linear[1];
       animation.offset_y   = show1 / 20.0f;
       animation.z          = move.linear[1];
       float show2          = render_value(animation);
 
-      animation.dist       = distance[x][y] * (2.0f + move.directional[2]) / 3.0f;
-      animation.angle      = 2 * polar_theta[x][y] + 3.0f * move.noise_angle[2] + move.radial[4];
+      animation.dist       = distance vXY(x,y) * (2.0f + move.directional[2]) / 3.0f;
+      animation.angle      = 2 * polar_theta vXY(x,y) + 3.0f * move.noise_angle[2] + move.radial[4];
       animation.offset_y   = 2 * move.linear[2];
       animation.offset_x   = show2 / 20.0f;
       animation.z          = move.linear[2];
       float show3          = render_value(animation);
 
-      animation.dist       = distance[x][y] * (2.0f + move.directional[3]) / 3.0f;
-      animation.angle      = 2 * polar_theta[x][y] + 3.0f * move.noise_angle[3] + move.radial[4];
+      animation.dist       = distance vXY(x,y) * (2.0f + move.directional[3]) / 3.0f;
+      animation.angle      = 2 * polar_theta vXY(x,y) + 3.0f * move.noise_angle[3] + move.radial[4];
       animation.offset_x   = 2 * move.linear[3];
       animation.offset_y   = show3 / 20.0f;
       animation.z          = move.linear[3];
@@ -1051,9 +1079,9 @@ void Caleido3() {
       float radius = radial_filter_radius;  // radial mask
 
       pixel.red   = show1 * (y+1) / num_y;
-      pixel.green = show3 * distance[x][y] / 10.0f;
+      pixel.green = show3 * distance vXY(x,y) / 10.0f;
       pixel.blue  = (show2 + show4) / 2.0f;
-      if (distance[x][y] > radius) {
+      if (distance vXY(x,y) > radius) {
         pixel.red = 0;
         pixel.green = 0;
         pixel.blue = 0;
@@ -1091,8 +1119,8 @@ void Lava1() {
     for (int y = 0; y < num_y; y++) {
   
       // describe and render animation layers
-      animation.dist       = distance[x][y] * 0.8f;
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y) * 0.8f;
+      animation.angle      = polar_theta vXY(x,y);
       animation.scale_x    = 0.15;// + (move.directional[0] + 2)/100;
       animation.scale_y    = 0.12;// + (move.directional[1] + 2)/100;
       animation.scale_z    = 0.01;
@@ -1157,8 +1185,8 @@ void Scaledemo1() {
     for (int y = 0; y < num_y; y++) {
   
       // describe and render animation layers
-      animation.dist       = 0.3f*distance[x][y] * 0.8f;
-      animation.angle      = 3.0f*polar_theta[x][y] + move.radial[2];
+      animation.dist       = 0.3f*distance vXY(x,y) * 0.8f;
+      animation.angle      = 3.0f*polar_theta vXY(x,y) + move.radial[2];
       animation.scale_x    = 0.1f + (move.noise_angle[0])/10.0f;
       animation.scale_y    = 0.1f + (move.noise_angle[1])/10.0f;// + (move.directional[1] + 2)/100;
       animation.scale_z    = 0.01;
@@ -1171,12 +1199,12 @@ void Scaledemo1() {
       animation.angle      = 3;
       float show2          = render_value(animation);
 
-      float dist = 1;//(10-distance[x][y])/ 10;
+      float dist = 1;//(10-distance vXY(x,y))/ 10;
       pixel.red = show1*dist;
       pixel.green = (show1-show2)*dist*0.3f;
       pixel.blue = (show2-show1)*dist;
 
-      if (distance[x][y] > 16) {
+      if (distance vXY(x,y) > 16) {
          pixel.red = 0;
          pixel.green = 0;
          pixel.blue = 0;
@@ -1221,8 +1249,8 @@ void Yves() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y] + float(TWO_PI) + move.noise_angle[5];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y) + float(TWO_PI) + move.noise_angle[5];
       animation.scale_x    = 0.08;
       animation.scale_y    = 0.08;
       animation.scale_z    = 0.08;
@@ -1232,8 +1260,8 @@ void Yves() {
       animation.z          = 0;
       float show1          = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y] + float(TWO_PI) + move.noise_angle[6];;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y) + float(TWO_PI) + move.noise_angle[6];;
       animation.scale_x    = 0.08;
       animation.scale_y    = 0.08;
       animation.scale_z    = 0.08;
@@ -1243,8 +1271,8 @@ void Yves() {
       animation.z          = 0;
       float show2          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] + show1/100.0f + move.noise_angle[3] + move.noise_angle[4];
-      animation.dist       = distance[x][y] + show2/50.0f;
+      animation.angle      = polar_theta vXY(x,y) + show1/100.0f + move.noise_angle[3] + move.noise_angle[4];
+      animation.dist       = distance vXY(x,y) + show2/50.0f;
       animation.offset_y   = -move.linear[2];
 
       animation.offset_y   += show1/100.0f;
@@ -1298,8 +1326,8 @@ void Spiralus() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y] ;
-      animation.angle      = 2.0f*polar_theta[x][y] + move.noise_angle[5] + move.directional[3] * move.noise_angle[6]* animation.dist/10.0f;
+      animation.dist       = distance vXY(x,y) ;
+      animation.angle      = 2.0f*polar_theta vXY(x,y) + move.noise_angle[5] + move.directional[3] * move.noise_angle[6]* animation.dist/10.0f;
       animation.scale_x    = 0.08;
       animation.scale_y    = 0.08;
       animation.scale_z    = 0.02;
@@ -1309,13 +1337,13 @@ void Spiralus() {
       animation.z          = move.linear[1];
       float show1          = render_value(animation);
 
-      animation.angle      = 2.0f*polar_theta[x][y] + move.noise_angle[7] + move.directional[5] * move.noise_angle[8]* animation.dist/10.0f;
+      animation.angle      = 2.0f*polar_theta vXY(x,y) + move.noise_angle[7] + move.directional[5] * move.noise_angle[8]* animation.dist/10.0f;
       animation.offset_y   = -move.linear[1];
       animation.z          = move.linear[2];
             
       float show2          = render_value(animation);
 
-      animation.angle      = 2.0f*polar_theta[x][y] + move.noise_angle[6] + move.directional[6] * move.noise_angle[7]* animation.dist/10.0f;
+      animation.angle      = 2.0f*polar_theta vXY(x,y) + move.noise_angle[6] + move.directional[6] * move.noise_angle[7]* animation.dist/10.0f;
       animation.offset_y   = move.linear[2];
       animation.z          = move.linear[0];
       float show3          = render_value(animation);
@@ -1361,8 +1389,8 @@ void Spiralus2() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y] ;
-      animation.angle      = 5.0f*polar_theta[x][y] + move.noise_angle[5] + move.directional[3] * move.noise_angle[6]* animation.dist/10.0f;
+      animation.dist       = distance vXY(x,y) ;
+      animation.angle      = 5.0f*polar_theta vXY(x,y) + move.noise_angle[5] + move.directional[3] * move.noise_angle[6]* animation.dist/10.0f;
       animation.scale_x    = 0.08;
       animation.scale_y    = 0.08;
       animation.scale_z    = 0.02;
@@ -1372,20 +1400,20 @@ void Spiralus2() {
       animation.z          = move.linear[1];
       float show1          = render_value(animation);
 
-      animation.angle      = 6.0f*polar_theta[x][y] + move.noise_angle[7] + move.directional[5] * move.noise_angle[8]* animation.dist/10.0f;
+      animation.angle      = 6.0f*polar_theta vXY(x,y) + move.noise_angle[7] + move.directional[5] * move.noise_angle[8]* animation.dist/10.0f;
       animation.offset_y   = -move.linear[1];
       animation.z          = move.linear[2];
             
       float show2          = render_value(animation);
 
-      animation.angle      = 6.0f*polar_theta[x][y] + move.noise_angle[6] + move.directional[6] * move.noise_angle[7]* animation.dist/10.0f;
+      animation.angle      = 6.0f*polar_theta vXY(x,y) + move.noise_angle[6] + move.directional[6] * move.noise_angle[7]* animation.dist/10.0f;
       animation.offset_y   = move.linear[2];
       animation.z          = move.linear[0];
-      animation.dist       = distance[x][y] *0.8f;
+      animation.dist       = distance vXY(x,y) *0.8f;
       float show3          = render_value(animation);
       
       
-      float f =  1;//(24-distance[x][y])/24;
+      float f =  1;//(24-distance vXY(x,y))/24;
      
       pixel.red   = f*(show1+show2);
       pixel.green = f*(show1-show2);
@@ -1410,8 +1438,8 @@ void Hot_Blob() { // nice one
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y] ;
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y) ;
+      animation.angle      = polar_theta vXY(x,y);
       
       animation.scale_x    = 0.07f + move.directional[0]*0.002f;
       animation.scale_y    = 0.07f;
@@ -1465,8 +1493,8 @@ void Zoom() { // nice one
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = (distance[x][y] * distance[x][y])/2.0f;
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = (distance vXY(x,y) * distance vXY(x,y))/2.0f;
+      animation.angle      = polar_theta vXY(x,y);
       
       animation.scale_x    = 0.005;
       animation.scale_y    = 0.005;
@@ -1510,8 +1538,8 @@ void Slow_Fade() { // nice one
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = sqrtf(distance[x][y]) * 0.7f * (move.directional[0] + 1.5f);
-      animation.angle      = polar_theta[x][y] - move.radial[0] + distance[x][y] / 5.0f;
+      animation.dist       = sqrtf(distance vXY(x,y)) * 0.7f * (move.directional[0] + 1.5f);
+      animation.angle      = polar_theta vXY(x,y) - move.radial[0] + distance vXY(x,y) / 5.0f;
       
       animation.scale_x    = 0.11;
       animation.scale_y    = 0.11;
@@ -1535,7 +1563,7 @@ void Slow_Fade() { // nice one
       float show3          = render_value(animation);
 
       float radius = radial_filter_radius;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
 
 
     
@@ -1573,27 +1601,27 @@ void Polar_Waves() { // nice one
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = (distance[x][y]);
-      animation.angle      = polar_theta[x][y] - animation.dist * 0.1 + move.radial[0];
+      animation.dist       = (distance vXY(x,y));
+      animation.angle      = polar_theta vXY(x,y) - animation.dist * 0.1 + move.radial[0];
       animation.z          = (animation.dist * 1.5f)-10.0f * move.linear[0];
       animation.scale_x    = 0.15;
       animation.scale_y    = 0.15;
       animation.offset_x   = move.linear[0];
       
       float show1          = render_value(animation);
-      animation.angle      = polar_theta[x][y] - animation.dist * 0.1f + move.radial[1];
+      animation.angle      = polar_theta vXY(x,y) - animation.dist * 0.1f + move.radial[1];
       animation.z          = (animation.dist * 1.5f)-10.0f * move.linear[1];
       animation.offset_x   = move.linear[1];
 
       float show2          = render_value(animation);
-      animation.angle      = polar_theta[x][y] - animation.dist * 0.1 + move.radial[2];
+      animation.angle      = polar_theta vXY(x,y) - animation.dist * 0.1 + move.radial[2];
       animation.z          = (animation.dist * 1.5f)-10.0f * move.linear[2];
       animation.offset_x   = move.linear[2];
 
       float show3          = render_value(animation);
 
       float radius = radial_filter_radius;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
 
       pixel.red    = radial * show1;
       pixel.green  = radial * show2;
@@ -1628,8 +1656,8 @@ void RGB_Blobs() { // nice one
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y] + move.radial[0] + move.noise_angle[0]+ move.noise_angle[3];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y) + move.radial[0] + move.noise_angle[0]+ move.noise_angle[3];
       animation.z          = (sqrtf(animation.dist));// - 10 * move.linear[0];
       animation.scale_x    = 0.1;
       animation.scale_y    = 0.1;
@@ -1637,19 +1665,19 @@ void RGB_Blobs() { // nice one
       animation.offset_x   = 10.0f*move.linear[0];
       float show1          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] + move.radial[1]+ move.noise_angle[1]+ move.noise_angle[4];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[1]+ move.noise_angle[1]+ move.noise_angle[4];
       animation.offset_x   = 11.0f*move.linear[1];
       animation.offset_z   = 100;
       float show2          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] + move.radial[2]+ move.noise_angle[2]+ move.noise_angle[5];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[2]+ move.noise_angle[2]+ move.noise_angle[5];
       animation.offset_x   = 12.0f*move.linear[2];
       animation.offset_z   = 300;
       float show3          = render_value(animation);
       
 
       float radius = radial_filter_radius;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
 
       pixel.red    = radial * show1;
       pixel.green  = radial * show2;
@@ -1684,8 +1712,8 @@ void RGB_Blobs2() { // nice one
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y] + move.radial[0] + move.noise_angle[0]+ move.noise_angle[3] + move.noise_angle[1];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y) + move.radial[0] + move.noise_angle[0]+ move.noise_angle[3] + move.noise_angle[1];
       animation.z          = (sqrtf(animation.dist));// - 10 * move.linear[0];
       animation.scale_x    = 0.1;
       animation.scale_y    = 0.1;
@@ -1693,18 +1721,18 @@ void RGB_Blobs2() { // nice one
       animation.offset_x   = 10.0f*move.linear[0];
       float show1          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] + move.radial[1]+ move.noise_angle[1]+ move.noise_angle[4] + move.noise_angle[2];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[1]+ move.noise_angle[1]+ move.noise_angle[4] + move.noise_angle[2];
       animation.offset_x   = 11.0f*move.linear[1];
       animation.offset_z   = 100;
       float show2          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] + move.radial[2]+ move.noise_angle[2]+ move.noise_angle[5]+ move.noise_angle[3];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[2]+ move.noise_angle[2]+ move.noise_angle[5]+ move.noise_angle[3];
       animation.offset_x   = 12.0f*move.linear[2];
       animation.offset_z   = 300;
       float show3          = render_value(animation);
       
       float radius = radial_filter_radius;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
 
       pixel.red    = radial * (show1-show3);
       pixel.green  = radial * (show2-show1);
@@ -1737,8 +1765,8 @@ void RGB_Blobs3() { // nice one
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y] + move.noise_angle[4];
-      animation.angle      = polar_theta[x][y] + move.radial[0] + move.noise_angle[0]+ move.noise_angle[3] + move.noise_angle[1];
+      animation.dist       = distance vXY(x,y) + move.noise_angle[4];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[0] + move.noise_angle[0]+ move.noise_angle[3] + move.noise_angle[1];
       animation.z          = (sqrtf(animation.dist));// - 10 * move.linear[0];
       animation.scale_x    = 0.1 ;
       animation.scale_y    = 0.1 ;
@@ -1746,18 +1774,18 @@ void RGB_Blobs3() { // nice one
       animation.offset_x   = 10.0f*move.linear[0];
       float show1          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] + move.radial[1]+ move.noise_angle[1]+ move.noise_angle[4] + move.noise_angle[2];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[1]+ move.noise_angle[1]+ move.noise_angle[4] + move.noise_angle[2];
       animation.offset_x   = 11.0f*move.linear[1];
       animation.offset_z   = 100;
       float show2          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] + move.radial[2]+ move.noise_angle[2]+ move.noise_angle[5]+ move.noise_angle[3];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[2]+ move.noise_angle[2]+ move.noise_angle[5]+ move.noise_angle[3];
       animation.offset_x   = 12.0f*move.linear[2];
       animation.offset_z   = 300;
       float show3          = render_value(animation);
       
       float radius = radial_filter_radius;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
 
       pixel.red    = radial * (show1+show3)*0.5f * animation.dist/5.0f;
       pixel.green  = radial * (show2+show1)*0.5f * y/15.0f;
@@ -1793,8 +1821,8 @@ void RGB_Blobs4() { // nice one
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y] + move.noise_angle[4];
-      animation.angle      = polar_theta[x][y] + move.radial[0] + move.noise_angle[0]+ move.noise_angle[3] + move.noise_angle[1];
+      animation.dist       = distance vXY(x,y) + move.noise_angle[4];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[0] + move.noise_angle[0]+ move.noise_angle[3] + move.noise_angle[1];
       animation.z          = 3.0f+sqrtf(animation.dist);
       animation.scale_x    = 0.1;
       animation.scale_y    = 0.1;
@@ -1802,18 +1830,18 @@ void RGB_Blobs4() { // nice one
       animation.offset_x   = 50.0f * move.linear[0];
       float show1          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] + move.radial[1]+ move.noise_angle[1]+ move.noise_angle[4] + move.noise_angle[2];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[1]+ move.noise_angle[1]+ move.noise_angle[4] + move.noise_angle[2];
       animation.offset_x   = 50.0f * move.linear[1];
       animation.offset_z   = 100;
       float show2          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] + move.radial[2]+ move.noise_angle[2]+ move.noise_angle[5]+ move.noise_angle[3];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[2]+ move.noise_angle[2]+ move.noise_angle[5]+ move.noise_angle[3];
       animation.offset_x   = 50.0f * move.linear[2];
       animation.offset_z   = 300;
       float show3          = render_value(animation);
       
       float radius = 23;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
 
       pixel.red    = radial * (show1+show3)*0.5f * animation.dist/5.0f;
       pixel.green  = radial * (show2+show1)*0.5f * y/15.0f;
@@ -1849,8 +1877,8 @@ void RGB_Blobs5() { // nice one
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y] + move.noise_angle[4];
-      animation.angle      = polar_theta[x][y] + move.radial[0] + move.noise_angle[0]+ move.noise_angle[3] + move.noise_angle[1];
+      animation.dist       = distance vXY(x,y) + move.noise_angle[4];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[0] + move.noise_angle[0]+ move.noise_angle[3] + move.noise_angle[1];
       animation.z          = 3.0f+sqrtf(animation.dist);
       animation.scale_x    = 0.05;
       animation.scale_y    = 0.05;
@@ -1858,18 +1886,18 @@ void RGB_Blobs5() { // nice one
       animation.offset_x   = 50.0f * move.linear[0];
       float show1          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] + move.radial[1]+ move.noise_angle[1]+ move.noise_angle[4] + move.noise_angle[2];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[1]+ move.noise_angle[1]+ move.noise_angle[4] + move.noise_angle[2];
       animation.offset_x   = 50.0f * move.linear[1];
       animation.offset_z   = 100;
       float show2          = render_value(animation);
 
-      animation.angle      = polar_theta[x][y] + move.radial[2]+ move.noise_angle[2]+ move.noise_angle[5]+ move.noise_angle[3];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[2]+ move.noise_angle[2]+ move.noise_angle[5]+ move.noise_angle[3];
       animation.offset_x   = 50.0f * move.linear[2];
       animation.offset_z   = 300;
       float show3          = render_value(animation);
       
       float radius = 23;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
 
       pixel.red    = radial * (show1+show3)*0.5f * animation.dist/5.0f;
       pixel.green  = radial * (show2+show1)*0.5f * y/15.0f;
@@ -1904,8 +1932,8 @@ void Big_Caleido() { // nice one
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y];
-      animation.angle      = 5.0f * polar_theta[x][y] + 5*move.noise_angle[0] + animation.dist * 0.1f;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = 5.0f * polar_theta vXY(x,y) + 5*move.noise_angle[0] + animation.dist * 0.1f;
       animation.z          = 5;
       animation.scale_x    = 0.05;
       animation.scale_y    = 0.05;
@@ -1914,7 +1942,7 @@ void Big_Caleido() { // nice one
       animation.offset_y   = 50 * move.noise_angle[1];
       float show1          = render_value(animation);
 
-      animation.angle      =6.0f * polar_theta[x][y] + 5*move.noise_angle[1] + animation.dist * 0.15f;
+      animation.angle      =6.0f * polar_theta vXY(x,y) + 5*move.noise_angle[1] + animation.dist * 0.15f;
       animation.z          = 5;
       animation.scale_x    = 0.05;
       animation.scale_y    = 0.05;
@@ -1984,8 +2012,8 @@ void SM1() { // nice one
   for (int x = 0; x < num_x/2; x++) {
     for (int y = 0; y < num_y/2; y++) {
       
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y] + 5.0f*move.noise_angle[0];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y) + 5.0f*move.noise_angle[0];
       animation.z          = 5;
       animation.scale_x    = 0.1;
       animation.scale_y    = 0.1;
@@ -1994,8 +2022,8 @@ void SM1() { // nice one
       animation.offset_y   = 150.0f * move.directional[1];
       float show1          = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y] + 4.0f*move.noise_angle[1];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y) + 4.0f*move.noise_angle[1];
       animation.z          = 15;
       animation.scale_x    = 0.15;
       animation.scale_y    = 0.15;
@@ -2004,8 +2032,8 @@ void SM1() { // nice one
       animation.offset_y   = 150.0f * move.directional[2];
       float show2          = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y] + 5.0f*move.noise_angle[2];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y) + 5.0f*move.noise_angle[2];
       animation.z          = 25;
       animation.scale_x    = 0.1;
       animation.scale_y    = 0.1;
@@ -2014,8 +2042,8 @@ void SM1() { // nice one
       animation.offset_y   = 150.0f * move.directional[3];
       float show3          = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y] + 5.0f*move.noise_angle[3];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y) + 5.0f*move.noise_angle[3];
       animation.z          = 35;
       animation.scale_x    = 0.15;
       animation.scale_y    = 0.15;
@@ -2024,8 +2052,8 @@ void SM1() { // nice one
       animation.offset_y   = 150.0f * move.directional[4];
       float show4          = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y] + 5.0f*move.noise_angle[4];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y) + 5.0f*move.noise_angle[4];
       animation.z          = 45;
       animation.scale_x    = 0.2;
       animation.scale_y    = 0.2;
@@ -2072,8 +2100,8 @@ void SM2() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y] * (move.directional[0]);
-      animation.angle      = polar_theta[x][y] + move.radial[0];
+      animation.dist       = distance vXY(x,y) * (move.directional[0]);
+      animation.angle      = polar_theta vXY(x,y) + move.radial[0];
       animation.z          = 5;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2082,8 +2110,8 @@ void SM2() {
       animation.offset_y   = 0;
       float show1          = render_value(animation);
 
-      animation.dist       = distance[x][y]* move.directional[1];
-      animation.angle      = polar_theta[x][y] + move.radial[1];
+      animation.dist       = distance vXY(x,y)* move.directional[1];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[1];
       animation.z          = 50;
       animation.scale_x    = 0.07;
       animation.scale_y    = 0.07;
@@ -2092,8 +2120,8 @@ void SM2() {
       animation.offset_y   = 0;
       float show2          = render_value(animation);
       
-      animation.dist       = distance[x][y]* move.directional[2];
-      animation.angle      = polar_theta[x][y] + move.radial[2];
+      animation.dist       = distance vXY(x,y)* move.directional[2];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[2];
       animation.z          = 500;
       animation.scale_x    = 0.05;
       animation.scale_y    = 0.05;
@@ -2138,8 +2166,8 @@ void SM3() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2150,8 +2178,8 @@ void SM3() {
       animation.high_limit = 1;
       show1          = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 500;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2162,8 +2190,8 @@ void SM3() {
       animation.high_limit = 1;
       show2          = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 50;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2174,8 +2202,8 @@ void SM3() {
       animation.high_limit = 1;
       show3          = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 50;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2186,8 +2214,8 @@ void SM3() {
       animation.high_limit = 1;
       show4          = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 50;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2231,8 +2259,8 @@ void SM4() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2243,8 +2271,8 @@ void SM4() {
       animation.high_limit = 1;
       show1          = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 500;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2288,8 +2316,8 @@ void SM5() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = distance[x][y] * (move.directional[0]);
-      animation.angle      = polar_theta[x][y] + move.radial[0];
+      animation.dist       = distance vXY(x,y) * (move.directional[0]);
+      animation.angle      = polar_theta vXY(x,y) + move.radial[0];
       animation.z          = 5;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2298,8 +2326,8 @@ void SM5() {
       animation.offset_y   = 0;
       float show1          = render_value(animation);
 
-      animation.dist       = distance[x][y]* move.directional[1];
-      animation.angle      = polar_theta[x][y] + move.radial[1];
+      animation.dist       = distance vXY(x,y)* move.directional[1];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[1];
       animation.z          = 50;
       animation.scale_x    = 0.07;
       animation.scale_y    = 0.07;
@@ -2308,8 +2336,8 @@ void SM5() {
       animation.offset_y   = 0;
       float show2          = render_value(animation);
       
-      animation.dist       = distance[x][y]* move.directional[2];
-      animation.angle      = polar_theta[x][y] + move.radial[2];
+      animation.dist       = distance vXY(x,y)* move.directional[2];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[2];
       animation.z          = 500;
       animation.scale_x    = 0.05;
       animation.scale_y    = 0.05;
@@ -2318,8 +2346,8 @@ void SM5() {
       animation.offset_y   = 0;
       float show3          = render_value(animation);
 
-      animation.dist       = distance[x][y] * (move.directional[3]);
-      animation.angle      = polar_theta[x][y] + move.radial[3];
+      animation.dist       = distance vXY(x,y) * (move.directional[3]);
+      animation.angle      = polar_theta vXY(x,y) + move.radial[3];
       animation.z          = 5;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2328,8 +2356,8 @@ void SM5() {
       animation.offset_y   = 0;
       float show4          = render_value(animation);
 
-      animation.dist       = distance[x][y]* move.directional[4];
-      animation.angle      = polar_theta[x][y] + move.radial[4];
+      animation.dist       = distance vXY(x,y)* move.directional[4];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[4];
       animation.z          = 50;
       animation.scale_x    = 0.07;
       animation.scale_y    = 0.07;
@@ -2338,8 +2366,8 @@ void SM5() {
       animation.offset_y   = 0;
       float show5          = render_value(animation);
       
-      animation.dist       = distance[x][y]* move.directional[5];
-      animation.angle      = polar_theta[x][y] + move.radial[5];
+      animation.dist       = distance vXY(x,y)* move.directional[5];
+      animation.angle      = polar_theta vXY(x,y) + move.radial[5];
       animation.z          = 500;
       animation.scale_x    = 0.05;
       animation.scale_y    = 0.05;
@@ -2349,7 +2377,7 @@ void SM5() {
       float show6          = render_value(animation);
 
       float radius = radial_filter_radius;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
      
       pixel.red    = radial * add(show1,show4);
       pixel.green  = radial * colordodge(show2,show5);
@@ -2385,8 +2413,8 @@ void SM6() {
 
       float s = 0.7; // zoom factor
       
-      animation.dist       = distance[x][y] * (move.directional[0]) * s;
-      animation.angle      = polar_theta[x][y] + move.radial[0];
+      animation.dist       = distance vXY(x,y) * (move.directional[0]) * s;
+      animation.angle      = polar_theta vXY(x,y) + move.radial[0];
       animation.z          = 5;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2395,8 +2423,8 @@ void SM6() {
       animation.offset_y   = 0;
       float show1          = render_value(animation);
 
-      animation.dist       = distance[x][y]* move.directional[1] * s;
-      animation.angle      = polar_theta[x][y] + move.radial[1];
+      animation.dist       = distance vXY(x,y)* move.directional[1] * s;
+      animation.angle      = polar_theta vXY(x,y) + move.radial[1];
       animation.z          = 50;
       animation.scale_x    = 0.07;
       animation.scale_y    = 0.07;
@@ -2405,8 +2433,8 @@ void SM6() {
       animation.offset_y   = 0;
       float show2          = render_value(animation);
       
-      animation.dist       = distance[x][y]* move.directional[2] * s;
-      animation.angle      = polar_theta[x][y] + move.radial[2];
+      animation.dist       = distance vXY(x,y)* move.directional[2] * s;
+      animation.angle      = polar_theta vXY(x,y) + move.radial[2];
       animation.z          = 500;
       animation.scale_x    = 0.05;
       animation.scale_y    = 0.05;
@@ -2415,8 +2443,8 @@ void SM6() {
       animation.offset_y   = 0;
       float show3          = render_value(animation);
 
-      animation.dist       = distance[x][y] * (move.directional[3]) * s;
-      animation.angle      = polar_theta[x][y] + move.radial[3];
+      animation.dist       = distance vXY(x,y) * (move.directional[3]) * s;
+      animation.angle      = polar_theta vXY(x,y) + move.radial[3];
       animation.z          = 5;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2425,8 +2453,8 @@ void SM6() {
       animation.offset_y   = 0;
       float show4          = render_value(animation);
 
-      animation.dist       = distance[x][y]* move.directional[4] * s;
-      animation.angle      = polar_theta[x][y] + move.radial[4];
+      animation.dist       = distance vXY(x,y)* move.directional[4] * s;
+      animation.angle      = polar_theta vXY(x,y) + move.radial[4];
       animation.z          = 50;
       animation.scale_x    = 0.07;
       animation.scale_y    = 0.07;
@@ -2435,8 +2463,8 @@ void SM6() {
       animation.offset_y   = 0;
       float show5          = render_value(animation);
       
-      animation.dist       = distance[x][y]* move.directional[5] * s;
-      animation.angle      = polar_theta[x][y] + move.radial[5];
+      animation.dist       = distance vXY(x,y)* move.directional[5] * s;
+      animation.angle      = polar_theta vXY(x,y) + move.radial[5];
       animation.z          = 500;
       animation.scale_x    = 0.05;
       animation.scale_y    = 0.05;
@@ -2446,7 +2474,7 @@ void SM6() {
       float show6          = render_value(animation);
 
       float radius = radial_filter_radius;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
 
       show7 = screen(show1, show4);
       show8 = colordodge(show2, show5);
@@ -2487,7 +2515,7 @@ void SM8() {
 
       //float s = 0.7; // zoom factor
       
-      animation.dist       = distance[x][y];
+      animation.dist       = distance vXY(x,y);
       animation.angle      = 2;
       animation.z          = 5;
       animation.scale_x    = 0.15;
@@ -2498,13 +2526,13 @@ void SM8() {
       animation.low_limit  = 0;
       float show1          = render_value(animation);
 
-      animation.dist       = distance[x][y];
+      animation.dist       = distance vXY(x,y);
       animation.angle      = 2;
       animation.z          = 150;
       animation.offset_x   = -50.0f * move.linear[0];     
       float show2          = render_value(animation);
 
-      animation.dist       = distance[x][y];
+      animation.dist       = distance vXY(x,y);
       animation.angle      = 1;
       animation.z          = 550;
       animation.scale_x    = 0.15;
@@ -2513,7 +2541,7 @@ void SM8() {
       animation.offset_y   = -50.0f * move.linear[1];
       float show4          = render_value(animation);      
 
-      animation.dist       = distance[x][y];
+      animation.dist       = distance vXY(x,y);
       animation.angle      = 1;
       animation.z          = 1250;
       animation.scale_x    = 0.15;
@@ -2525,7 +2553,7 @@ void SM8() {
      
 
       //float radius = radial_filter_radius;   // radius of a radial brightness filter
-      //float radial = (radius-distance[x][y])/distance[x][y];
+      //float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
 
       show3 = add(show1, show2);
       show6 = screen(show4, show5);
@@ -2563,8 +2591,8 @@ void SM9() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2574,8 +2602,8 @@ void SM9() {
       animation.low_limit  = -1;
       show1                = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 50;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2585,8 +2613,8 @@ void SM9() {
       animation.low_limit  = -1;
       show2                = render_value(animation);
 
-      animation.dist       = distance[x][y];// + show1/64;
-      animation.angle      = polar_theta[x][y] + 2.0f + (show1 / 255.0f) * float(PI);
+      animation.dist       = distance vXY(x,y);// + show1/64;
+      animation.angle      = polar_theta vXY(x,y) + 2.0f + (show1 / 255.0f) * float(PI);
       animation.z          = 5;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2596,8 +2624,8 @@ void SM9() {
       animation.low_limit  = 0;
       show3                = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y] + 2.0f +(show2 / 255.0f) * float(PI);
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y) + 2.0f +(show2 / 255.0f) * float(PI);
       animation.z          = 5;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2646,8 +2674,8 @@ void SM10() {
 
       float scale = 0.6;
       
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.09f * scale;
       animation.scale_y    = 0.09f * scale;
@@ -2657,8 +2685,8 @@ void SM10() {
       animation.low_limit  = -1;
       show1                = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 50;
       animation.scale_x    = 0.09f * scale;
       animation.scale_y    = 0.09f * scale;
@@ -2668,8 +2696,8 @@ void SM10() {
       animation.low_limit  = -1;
       show2                = render_value(animation);
 
-      animation.dist       = distance[x][y];// + show1/64;
-      animation.angle      = polar_theta[x][y] + 2.0f + (show1 / 255.0f) * float(PI);
+      animation.dist       = distance vXY(x,y);// + show1/64;
+      animation.angle      = polar_theta vXY(x,y) + 2.0f + (show1 / 255.0f) * float(PI);
       animation.z          = 5;
       animation.scale_x    = 0.09f * scale;
       animation.scale_y    = 0.09f * scale;
@@ -2679,8 +2707,8 @@ void SM10() {
       animation.low_limit  = 0;
       show3                = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y] + 2.0f +(show2 / 255.0f) * float(PI);
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y) + 2.0f +(show2 / 255.0f) * float(PI);
       animation.z          = 5;
       animation.scale_x    = 0.09f * scale;
       animation.scale_y    = 0.09f * scale;
@@ -2731,8 +2759,8 @@ void Complex_Kaleido() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
 
-      animation.dist       = distance[x][y];
-      animation.angle      = 5.0f * polar_theta[x][y] + 10.0f * move.radial[0] + animation.dist /2.0f;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = 5.0f * polar_theta vXY(x,y) + 10.0f * move.radial[0] + animation.dist /2.0f;
       animation.z          = 5;
       animation.scale_x    = 0.07;
       animation.scale_y    = 0.07;
@@ -2742,8 +2770,8 @@ void Complex_Kaleido() {
       animation.low_limit  = 0;
       show1                = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = -5.0f * polar_theta[x][y] + 12.0f * move.radial[1] + animation.dist /2.0f;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = -5.0f * polar_theta vXY(x,y) + 12.0f * move.radial[1] + animation.dist /2.0f;
       animation.z          = 500;
       animation.scale_x    = 0.07;
       animation.scale_y    = 0.07;
@@ -2753,8 +2781,8 @@ void Complex_Kaleido() {
       animation.low_limit  = 0;
       show2                = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = -5.0f * polar_theta[x][y] + 12.0f * move.radial[2] + animation.dist /2.0f;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = -5.0f * polar_theta vXY(x,y) + 12.0f * move.radial[2] + animation.dist /2.0f;
       animation.z          = 500;
       animation.scale_x    = 0.05;
       animation.scale_y    = 0.05;
@@ -2765,8 +2793,8 @@ void Complex_Kaleido() {
       show3                = render_value(animation);
 
       
-      animation.dist       = distance[x][y];
-      animation.angle      = 5.0f * polar_theta[x][y] + 12.0f * move.radial[3] + animation.dist /2.0f;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = 5.0f * polar_theta vXY(x,y) + 12.0f * move.radial[3] + animation.dist /2.0f;
       animation.z          = 500;
       animation.scale_x    = 0.09;
       animation.scale_y    = 0.09;
@@ -2783,7 +2811,7 @@ void Complex_Kaleido() {
       //float linear2 = (32-y) / 32.f;
 
       float radius = radial_filter_radius;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
 
       pixel.red    = radial*(show1+show2);
       pixel.green  = 0.3f*radial*show6;//(radial*(show1))*0.3f;
@@ -2820,8 +2848,8 @@ void Complex_Kaleido_2() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
 
-      animation.dist       = distance[x][y];
-      animation.angle      = 5.0f * polar_theta[x][y] + 10.0f * move.radial[0] + animation.dist /2.0f;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = 5.0f * polar_theta vXY(x,y) + 10.0f * move.radial[0] + animation.dist /2.0f;
       animation.z          = 5;
       animation.scale_x    = 0.07f * size;
       animation.scale_y    = 0.07f * size;
@@ -2831,8 +2859,8 @@ void Complex_Kaleido_2() {
       animation.low_limit  = 0;
       show1                = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = -5.0f * polar_theta[x][y] + 12.0f * move.radial[1] + animation.dist /2.0f;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = -5.0f * polar_theta vXY(x,y) + 12.0f * move.radial[1] + animation.dist /2.0f;
       animation.z          = 500;
       animation.scale_x    = 0.07f * size;
       animation.scale_y    = 0.07f * size;
@@ -2842,8 +2870,8 @@ void Complex_Kaleido_2() {
       animation.low_limit  = 0;
       show2                = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = -5.0f * polar_theta[x][y] + 12.0f * move.radial[2] + animation.dist /2.0f;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = -5.0f * polar_theta vXY(x,y) + 12.0f * move.radial[2] + animation.dist /2.0f;
       animation.z          = 500;
       animation.scale_x    = 0.05f * size;
       animation.scale_y    = 0.05f * size;
@@ -2854,8 +2882,8 @@ void Complex_Kaleido_2() {
       show3                = render_value(animation);
 
       
-      animation.dist       = distance[x][y];
-      animation.angle      = 5.0f * polar_theta[x][y] + 12.0f * move.radial[3] + animation.dist /2.0f;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = 5.0f * polar_theta vXY(x,y) + 12.0f * move.radial[3] + animation.dist /2.0f;
       animation.z          = 500;
       animation.scale_x    = 0.09f * size;
       animation.scale_y    = 0.09f * size;
@@ -2872,7 +2900,7 @@ void Complex_Kaleido_2() {
       //float linear2 = (32-y) / 32.f;
 
       float radius = radial_filter_radius;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
 
       pixel.red    = radial*(show1+show2);
       pixel.green  = 0.3f*radial*show6;//(radial*(show1))*0.3f;
@@ -2913,8 +2941,8 @@ void Complex_Kaleido_3() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
 
-      animation.dist       = distance[x][y];
-      animation.angle      = 5.0f * polar_theta[x][y] + 10.0f * move.radial[0] + animation.dist / (((move.directional[0] + 3.0f)*2.0f)) + move.noise_angle[0]*q;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = 5.0f * polar_theta vXY(x,y) + 10.0f * move.radial[0] + animation.dist / (((move.directional[0] + 3.0f)*2.0f)) + move.noise_angle[0]*q;
       animation.z          = 5;
       animation.scale_x    = 0.08f * size * (move.directional[0]+1.5f);
       animation.scale_y    = 0.07f * size;
@@ -2924,8 +2952,8 @@ void Complex_Kaleido_3() {
       animation.low_limit  = 0;
       show1                = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = -5.0f * polar_theta[x][y] + 10.0f * move.radial[1] + animation.dist / (((move.directional[1] + 3.0f)*2.0f))+ move.noise_angle[1]*q;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = -5.0f * polar_theta vXY(x,y) + 10.0f * move.radial[1] + animation.dist / (((move.directional[1] + 3.0f)*2.0f))+ move.noise_angle[1]*q;
       animation.z          = 500;
       animation.scale_x    = 0.07f * size * (move.directional[1]+1.1f);
       animation.scale_y    = 0.07f * size * (move.directional[2]+1.3f);;
@@ -2935,8 +2963,8 @@ void Complex_Kaleido_3() {
       animation.low_limit  = 0;
       show2                = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = -5.0f * polar_theta[x][y] + 12.0f * move.radial[2] + animation.dist /(((move.directional[3] + 3.0f)*2.0f))+ move.noise_angle[2]*q;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = -5.0f * polar_theta vXY(x,y) + 12.0f * move.radial[2] + animation.dist /(((move.directional[3] + 3.0f)*2.0f))+ move.noise_angle[2]*q;
       animation.z          = 500;
       animation.scale_x    = 0.05f * size * (move.directional[3]+1.5f);
       animation.scale_y    = 0.05f * size * (move.directional[4]+1.5f);
@@ -2947,8 +2975,8 @@ void Complex_Kaleido_3() {
       show3                = render_value(animation);
 
       
-      animation.dist       = distance[x][y];
-      animation.angle      = 5.0f * polar_theta[x][y] + 12.0f * move.radial[3] + animation.dist /(((move.directional[5] + 3.0f)*2.0f))+ move.noise_angle[3]*q;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = 5.0f * polar_theta vXY(x,y) + 12.0f * move.radial[3] + animation.dist /(((move.directional[5] + 3.0f)*2.0f))+ move.noise_angle[3]*q;
       animation.z          = 500;
       animation.scale_x    = 0.09f * size * (move.directional[5]+1.5f);
       animation.scale_y    = 0.09f * size * (move.directional[6]+1.5f);
@@ -2967,7 +2995,7 @@ void Complex_Kaleido_3() {
       //float linear2 = (32-y) / 32.f;
 
       float radius = radial_filter_radius;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
 
       show7 = multiply(show1, show2) * linear1*2;
       show8 = subtract(show7, show5);
@@ -3011,8 +3039,8 @@ void Complex_Kaleido_4() {
 
       float s = 1 +  move.directional[6]*0.3f;
 
-      animation.dist       = distance[x][y] * s;
-      animation.angle      = 5.0f * polar_theta[x][y] + move.radial[0] - animation.dist / (3.0f+move.directional[0]*0.5f);
+      animation.dist       = distance vXY(x,y) * s;
+      animation.angle      = 5.0f * polar_theta vXY(x,y) + move.radial[0] - animation.dist / (3.0f+move.directional[0]*0.5f);
       animation.z          = 5;
       animation.scale_x    = 0.08f * size + (move.directional[0]*0.01f);
       animation.scale_y    = 0.07f * size + (move.directional[1]*0.01f);
@@ -3022,8 +3050,8 @@ void Complex_Kaleido_4() {
       animation.low_limit  = 0;
       show1                = render_value(animation);
 
-      animation.dist       = distance[x][y] * s;
-      animation.angle      = 5.0f * polar_theta[x][y] + move.radial[1] + animation.dist / (3.0f+move.directional[1]*0.5f);
+      animation.dist       = distance vXY(x,y) * s;
+      animation.angle      = 5.0f * polar_theta vXY(x,y) + move.radial[1] + animation.dist / (3.0f+move.directional[1]*0.5f);
       animation.z          = 50;
       animation.scale_x    = 0.08f * size + (move.directional[1]*0.01f);
       animation.scale_y    = 0.07f * size + (move.directional[2]*0.01f);
@@ -3033,7 +3061,7 @@ void Complex_Kaleido_4() {
       animation.low_limit  = 0;
       show2                = render_value(animation);
 
-      animation.dist       = distance[x][y];
+      animation.dist       = distance vXY(x,y);
       animation.angle      = 1;
       animation.z          = 500;
       animation.scale_x    = 0.2f * size ;
@@ -3045,8 +3073,8 @@ void Complex_Kaleido_4() {
       show3                = render_value(animation);
 
       
-      animation.dist       = distance[x][y];
-      animation.angle      = 5.0f * polar_theta[x][y] + 12.0f * move.radial[3] + animation.dist /(((move.directional[5] + 3.0f)*2.0f))+ move.noise_angle[3]*q;
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = 5.0f * polar_theta vXY(x,y) + 12.0f * move.radial[3] + animation.dist /(((move.directional[5] + 3.0f)*2.0f))+ move.noise_angle[3]*q;
       animation.z          = 500;
       animation.scale_x    = 0.09f * size * (move.directional[5]+1.5f);
       animation.scale_y    = 0.09f * size * (move.directional[6]+1.5f);;;
@@ -3066,7 +3094,7 @@ void Complex_Kaleido_4() {
       */
 
       float radius = radial_filter_radius;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
       /*
       show7 = multiply(show1, show2) * linear1*2;
       show8 = subtract(show7, show5);
@@ -3118,8 +3146,8 @@ void Complex_Kaleido_5() {
 
       float s = 1 +  move.directional[6]*0.8;
 
-      animation.dist       = distance[x][y] * s;
-      animation.angle      = 10.0f*move.radial[6] + 50.0f * move.directional[5] * polar_theta[x][y]  - animation.dist / 3.0f;
+      animation.dist       = distance vXY(x,y) * s;
+      animation.angle      = 10.0f*move.radial[6] + 50.0f * move.directional[5] * polar_theta vXY(x,y)  - animation.dist / 3.0f;
       animation.z          = 5;
       animation.scale_x    = 0.08f * size ;
       animation.scale_y    = 0.07f * size ;
@@ -3131,7 +3159,7 @@ void Complex_Kaleido_5() {
 
      
       float radius = radial_filter_radius;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/distance[x][y];
+      float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
      
       pixel.red    = show1 * radial;
       pixel.green = 0;
@@ -3167,8 +3195,8 @@ void Complex_Kaleido_6() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
 
-      animation.dist       = distance[x][y];
-      animation.angle      = 16.0f * polar_theta[x][y] + 16.0f*move.radial[0];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = 16.0f * polar_theta vXY(x,y) + 16.0f*move.radial[0];
       animation.z          = 5;
       animation.scale_x    = 0.06 ;
       animation.scale_y    = 0.06 ;
@@ -3178,8 +3206,8 @@ void Complex_Kaleido_6() {
       animation.low_limit  = 0;
       show1                = render_value(animation);
 
-      animation.dist       = distance[x][y];
-      animation.angle      = 16.0f * polar_theta[x][y] + 16.0f*move.radial[1];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = 16.0f * polar_theta vXY(x,y) + 16.0f*move.radial[1];
       animation.z          = 500;
       animation.scale_x    = 0.06 ;
       animation.scale_y    = 0.06 ;
@@ -3191,7 +3219,7 @@ void Complex_Kaleido_6() {
 
      
       //float radius = radial_filter_radius;   // radius of a radial brightness filter
-      //float radial = (radius-distance[x][y])/distance[x][y];
+      //float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
      
       pixel.red    = show1;
       pixel.green  = 0;
@@ -3226,8 +3254,8 @@ void Water() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
 
-      animation.dist       = distance[x][y] + 4.0f*sinf(move.directional[5]*float(PI)+(float)x/2.0f) + 4.0f * cosf(move.directional[6]*float(PI)+float(y)/2.0f);
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y) + 4.0f*sinf(move.directional[5]*float(PI)+(float)x/2.0f) + 4.0f * cosf(move.directional[6]*float(PI)+float(y)/2.0f);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.06 ;
       animation.scale_y    = 0.06 ;
@@ -3237,8 +3265,8 @@ void Water() {
       animation.low_limit  = 0;
       show1                = render_value(animation);
 
-      animation.dist       = (10.0f+move.directional[0]) * sinf(-move.radial[5]+move.radial[0]+(distance[x][y] / (3.0f)));
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = (10.0f+move.directional[0]) * sinf(-move.radial[5]+move.radial[0]+(distance vXY(x,y) / (3.0f)));
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.1 ;
       animation.scale_y    = 0.1 ;
@@ -3248,8 +3276,8 @@ void Water() {
       animation.low_limit  = 0;
       show2                = render_value(animation);
 
-      animation.dist       = (10.0f+move.directional[1]) * sinf(-move.radial[5]+move.radial[1]+(distance[x][y] / (3.0f)));
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = (10.0f+move.directional[1]) * sinf(-move.radial[5]+move.radial[1]+(distance vXY(x,y) / (3.0f)));
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 500;
       animation.scale_x    = 0.1 ;
       animation.scale_y    = 0.1 ;
@@ -3259,8 +3287,8 @@ void Water() {
       animation.low_limit  = 0;
       show3                = render_value(animation);
 
-      animation.dist       = (10.0f+move.directional[2]) * sinf(-move.radial[5]+move.radial[2]+(distance[x][y] / (3.0f)));
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = (10.0f+move.directional[2]) * sinf(-move.radial[5]+move.radial[2]+(distance vXY(x,y) / (3.0f)));
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 500;
       animation.scale_x    = 0.1 ;
       animation.scale_y    = 0.1 ;
@@ -3274,7 +3302,7 @@ void Water() {
       
      
       //float radius = radial_filter_radius;   // radius of a radial brightness filter
-      //float radial = (radius-distance[x][y])/distance[x][y];
+      //float radial = (radius-distance vXY(x,y))/distance vXY(x,y);
      
       //pixel.red    = show2;
       
@@ -3318,8 +3346,8 @@ void Parametric_Water() {
       float s = 4;
       float f = 10 + 2* move.directional[0];
 
-      animation.dist       = (f+move.directional[0]) * sinf(-move.radial[5]+move.radial[0]+(distance[x][y] / (s)));
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = (f+move.directional[0]) * sinf(-move.radial[5]+move.radial[0]+(distance vXY(x,y) / (s)));
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.1 ;
       animation.scale_y    = 0.1 ;
@@ -3329,8 +3357,8 @@ void Parametric_Water() {
       animation.low_limit  = 0;
       show2                = render_value(animation);
 
-      animation.dist       = (f+move.directional[1]) * sinf(-move.radial[5]+move.radial[1]+(distance[x][y] / (s)));
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = (f+move.directional[1]) * sinf(-move.radial[5]+move.radial[1]+(distance vXY(x,y) / (s)));
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 500;
       animation.scale_x    = 0.1 ;
       animation.scale_y    = 0.1 ;
@@ -3340,8 +3368,8 @@ void Parametric_Water() {
       animation.low_limit  = 0;
       show3                = render_value(animation);
 
-      animation.dist       = (f+move.directional[2]) * sinf(-move.radial[5]+move.radial[2]+(distance[x][y] / (s)));
-      animation.angle      = 1 * polar_theta[x][y];
+      animation.dist       = (f+move.directional[2]) * sinf(-move.radial[5]+move.radial[2]+(distance vXY(x,y) / (s)));
+      animation.angle      = 1 * polar_theta vXY(x,y);
       animation.z          = 5000;
       animation.scale_x    = 0.1 ;
       animation.scale_y    = 0.1 ;
@@ -3351,8 +3379,8 @@ void Parametric_Water() {
       animation.low_limit  = 0;
       show4                = render_value(animation);
 
-      animation.dist       = (f+move.directional[3]) * sinf(-move.radial[5]+move.radial[3]+(distance[x][y] / (s)));
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = (f+move.directional[3]) * sinf(-move.radial[5]+move.radial[3]+(distance vXY(x,y) / (s)));
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 2000;
       animation.scale_x    = 0.1 ;
       animation.scale_y    = 0.1 ;
@@ -3369,7 +3397,7 @@ void Parametric_Water() {
       
      
       float radius = 40;   // radius of a radial brightness filter
-      float radial = (radius-distance[x][y])/radius;
+      float radial = (radius-distance vXY(x,y))/radius;
      
       //pixel.red    = show6;
       //pixel.blue = show7;
@@ -3406,8 +3434,8 @@ void Module_Experiment1() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
 
-      animation.dist       = distance[x][y] + 20.0f * move.directional[0];
-      animation.angle      = move.noise_angle[0] + move.noise_angle[1] + polar_theta[x][y];
+      animation.dist       = distance vXY(x,y) + 20.0f * move.directional[0];
+      animation.angle      = move.noise_angle[0] + move.noise_angle[1] + polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.1 ;
       animation.scale_y    = 0.1 ;
@@ -3446,8 +3474,8 @@ void Module_Experiment2() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
 
-      animation.dist       = distance[x][y] - ( 16.0f + move.directional[0] * 16.0f);
-      animation.angle      = move.noise_angle[0] + move.noise_angle[1] + polar_theta[x][y];
+      animation.dist       = distance vXY(x,y) - ( 16.0f + move.directional[0] * 16.0f);
+      animation.angle      = move.noise_angle[0] + move.noise_angle[1] + polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.1 ;
       animation.scale_y    = 0.1 ;
@@ -3486,8 +3514,8 @@ void Module_Experiment3() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
 
-      animation.dist       = distance[x][y] - (12.0f + move.directional[3]*4.0f);
-      animation.angle      = move.noise_angle[0] + move.noise_angle[1] + polar_theta[x][y];
+      animation.dist       = distance vXY(x,y) - (12.0f + move.directional[3]*4.0f);
+      animation.angle      = move.noise_angle[0] + move.noise_angle[1] + polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.1 ;
       animation.scale_y    = 0.1 ;
@@ -3520,8 +3548,8 @@ void Zoom2() { // nice one
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
       
-      animation.dist       = (distance[x][y] * distance[x][y])/2.0f;
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = (distance vXY(x,y) * distance vXY(x,y))/2.0f;
+      animation.angle      = polar_theta vXY(x,y);
       
       animation.scale_x    = 0.005;
       animation.scale_y    = 0.005;
@@ -3571,8 +3599,8 @@ void Module_Experiment4() {
 
       float s = 0.8;
 
-      animation.dist       = (distance[x][y] * distance[x][y])*0.7f;
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = (distance vXY(x,y) * distance vXY(x,y))*0.7f;
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.004f * s;
       animation.scale_y    = 0.003f * s;
@@ -3582,8 +3610,8 @@ void Module_Experiment4() {
       animation.low_limit  = 0;
       show1                = render_value(animation);
 
-      animation.dist       = (distance[x][y] * distance[x][y])*0.8f;
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = (distance vXY(x,y) * distance vXY(x,y))*0.8f;
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 50;
       animation.scale_x    = 0.004f * s;
       animation.scale_y    = 0.003f * s;
@@ -3593,8 +3621,8 @@ void Module_Experiment4() {
       animation.low_limit  = 0;
       show2                = render_value(animation);
 
-      animation.dist       = (distance[x][y] * distance[x][y])*0.9f;
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = (distance vXY(x,y) * distance vXY(x,y))*0.9f;
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 5000;
       animation.scale_x    = 0.004f * s;
       animation.scale_y    = 0.003f * s;
@@ -3647,8 +3675,8 @@ void Module_Experiment5() {
 
       float s = 1.5;
 
-      animation.dist       = distance[x][y] + sinf(0.5f*distance[x][y]-move.radial[3]);
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y) + sinf(0.5f*distance vXY(x,y)-move.radial[3]);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.1f * s;
       animation.scale_y    = 0.1f * s;
@@ -3695,8 +3723,8 @@ void Module_Experiment6() {
 
       float s = 0.8;
 
-      animation.dist       = distance[x][y] + sinf(0.25f*distance[x][y]-move.radial[3]);
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y) + sinf(0.25f*distance vXY(x,y)-move.radial[3]);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.1f * s;
       animation.scale_y    = 0.1f * s;
@@ -3706,8 +3734,8 @@ void Module_Experiment6() {
       animation.low_limit  = 0;
       show1                = render_value(animation);
 
-      animation.dist       = distance[x][y] + sinf(0.24f*distance[x][y]-move.radial[4]);
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = distance vXY(x,y) + sinf(0.24f*distance vXY(x,y)-move.radial[4]);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 10;
       animation.scale_x    = 0.1f * s;
       animation.scale_y    = 0.1f * s;
@@ -3759,8 +3787,8 @@ void Module_Experiment7() {
 
       float s = 0.7;
 
-      animation.dist       = 2.0f+distance[x][y] + 2.0f*sinf(0.25f*distance[x][y]-move.radial[3]);
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = 2.0f+distance vXY(x,y) + 2.0f*sinf(0.25f*distance vXY(x,y)-move.radial[3]);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 5;
       animation.scale_x    = 0.1f * s;
       animation.scale_y    = 0.1f * s;
@@ -3770,8 +3798,8 @@ void Module_Experiment7() {
       animation.low_limit  = 0;
       show1                = render_value(animation);
 
-      animation.dist       = 2.0f+distance[x][y] + 2.0f*sinf(0.24f*distance[x][y]-move.radial[4]);
-      animation.angle      = polar_theta[x][y];
+      animation.dist       = 2.0f+distance vXY(x,y) + 2.0f*sinf(0.24f*distance vXY(x,y)-move.radial[4]);
+      animation.angle      = polar_theta vXY(x,y);
       animation.z          = 10;
       animation.scale_x    = 0.1f * s;
       animation.scale_y    = 0.1f * s;
@@ -3836,8 +3864,8 @@ void Module_Experiment8() {
       constexpr float s = 0.4; // scale
       constexpr float r = 1.5; // scroll speed
 
-      animation.dist       = 3.0f+distance[x][y] + 3.0f*sinf(0.25f*distance[x][y]-move.radial[3]);
-      animation.angle      = polar_theta[x][y] + move.noise_angle[0] + move.noise_angle[6];
+      animation.dist       = 3.0f+distance vXY(x,y) + 3.0f*sinf(0.25f*distance vXY(x,y)-move.radial[3]);
+      animation.angle      = polar_theta vXY(x,y) + move.noise_angle[0] + move.noise_angle[6];
       animation.z          = 5;
       animation.scale_x    = 0.1f * s;
       animation.scale_y    = 0.1f * s;
@@ -3847,8 +3875,8 @@ void Module_Experiment8() {
       animation.low_limit  = 0;
       show1                = render_value(animation);
 
-      animation.dist       = 4.0f+distance[x][y] + 4.0f*sinf(0.24f*distance[x][y]-move.radial[4]);
-      animation.angle      = polar_theta[x][y] + move.noise_angle[1] + move.noise_angle[6];
+      animation.dist       = 4.0f+distance vXY(x,y) + 4.0f*sinf(0.24f*distance vXY(x,y)-move.radial[4]);
+      animation.angle      = polar_theta vXY(x,y) + move.noise_angle[1] + move.noise_angle[6];
       animation.z          = 5;
       animation.scale_x    = 0.1f * s;
       animation.scale_y    = 0.1f * s;
@@ -3858,8 +3886,8 @@ void Module_Experiment8() {
       animation.low_limit  = 0;
       show2                = render_value(animation);
 
-      animation.dist       = 5.0f+distance[x][y] + 5.0f*sinf(0.23f*distance[x][y]-move.radial[5]);
-      animation.angle      = polar_theta[x][y] + move.noise_angle[2] + move.noise_angle[6];
+      animation.dist       = 5.0f+distance vXY(x,y) + 5.0f*sinf(0.23f*distance vXY(x,y)-move.radial[5]);
+      animation.angle      = polar_theta vXY(x,y) + move.noise_angle[2] + move.noise_angle[6];
       animation.z          = 5;
       animation.scale_x    = 0.1f * s;
       animation.scale_y    = 0.1f * s;
@@ -3871,8 +3899,8 @@ void Module_Experiment8() {
 
       show4 = colordodge(show1, show2);
 
-      //float rad = sinf(float(PI)/2.0f+distance[x][y]/14.0f); // better radial filter?!
-      float rad = sinf(float(HALF_PI)+distance[x][y]/14.0f); // better radial filter?!
+      //float rad = sinf(float(PI)/2.0f+distance vXY(x,y)/14.0f); // better radial filter?!
+      float rad = sinf(float(HALF_PI)+distance vXY(x,y)/14.0f); // better radial filter?!
 
       
       /*
@@ -3917,8 +3945,8 @@ void Module_Experiment9() {
   for (int x = 0; x < num_x; x++) {
     for (int y = 0; y < num_y; y++) {
 
-      animation.dist       = distance[x][y];
-      animation.angle      = polar_theta[x][y] + move.radial[1];
+      animation.dist       = distance vXY(x,y);
+      animation.angle      = polar_theta vXY(x,y) + move.radial[1];
       animation.z          = 5;
       animation.scale_x    = 0.001;
       animation.scale_y    = 0.1;
@@ -3975,8 +4003,8 @@ void Module_Experiment10() {
       constexpr float s = 0.4; // scale
       constexpr float r = 1.5; // scroll speed
 
-      animation.dist       = 3.0f+distance[x][y] + 3.0f*sinf(0.25f*distance[x][y]-move.radial[3]);
-      animation.angle      = polar_theta[x][y] + move.noise_angle[0] + move.noise_angle[6];
+      animation.dist       = 3.0f+distance vXY(x,y) + 3.0f*sinf(0.25f*distance vXY(x,y)-move.radial[3]);
+      animation.angle      = polar_theta vXY(x,y) + move.noise_angle[0] + move.noise_angle[6];
       animation.z          = 5;
       animation.scale_x    = 0.1f * s;
       animation.scale_y    = 0.1f * s;
@@ -3986,8 +4014,8 @@ void Module_Experiment10() {
       animation.low_limit  = 0;
       show1                = render_value(animation);
 
-      animation.dist       = 4.0f+distance[x][y] + 4.0f*sinf(0.24f*distance[x][y]-move.radial[4]);
-      animation.angle      = polar_theta[x][y] + move.noise_angle[1] + move.noise_angle[6];
+      animation.dist       = 4.0f+distance vXY(x,y) + 4.0f*sinf(0.24f*distance vXY(x,y)-move.radial[4]);
+      animation.angle      = polar_theta vXY(x,y) + move.noise_angle[1] + move.noise_angle[6];
       animation.z          = 5;
       animation.scale_x    = 0.1f * s;
       animation.scale_y    = 0.1f * s;
@@ -3997,8 +4025,8 @@ void Module_Experiment10() {
       animation.low_limit  = 0;
       show2                = render_value(animation);
 
-      animation.dist       = 5.0f+distance[x][y] + 5.0f*sinf(0.23f*distance[x][y]-move.radial[5]);
-      animation.angle      = polar_theta[x][y] + move.noise_angle[2] + move.noise_angle[6];
+      animation.dist       = 5.0f+distance vXY(x,y) + 5.0f*sinf(0.23f*distance vXY(x,y)-move.radial[5]);
+      animation.angle      = polar_theta vXY(x,y) + move.noise_angle[2] + move.noise_angle[6];
       animation.z          = 5;
       animation.scale_x    = 0.1f * s;
       animation.scale_y    = 0.1f * s;
@@ -4010,7 +4038,7 @@ void Module_Experiment10() {
 
       show4 = colordodge(show1, show2);
 
-      //float rad = sinf(float(HALF_PI)+distance[x][y]/14.0f); // better radial filter?! // BUG this value is never used
+      //float rad = sinf(float(HALF_PI)+distance vXY(x,y)/14.0f); // better radial filter?! // BUG this value is never used
 
       
       /*
