@@ -60,12 +60,24 @@ public:
     if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
       throw std::bad_alloc();
     }
+    
     // Use heap_caps_malloc_prefer to try PSRAM first, then fall back to internal RAM.
     // The second argument '2' is the number of capability pairs to try.
-    // MALLOC_CAP_32BIT ensures proper alignment for float and other 32-bit types.
-    void* p = heap_caps_malloc_prefer(n * sizeof(T), 2, 
-                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_32BIT, 
-                                      MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT);
+    // For types with sizeof >= 4 bytes (like float), use MALLOC_CAP_32BIT for proper alignment.
+    // For smaller types, use MALLOC_CAP_8BIT which is less restrictive.
+    void* p;
+    if (sizeof(T) >= 4) {
+      // 32-bit or larger types: use 32-bit alignment for optimal performance
+      p = heap_caps_malloc_prefer(n * sizeof(T), 2, 
+                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_32BIT, 
+                                  MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT);
+    } else {
+      // Smaller types: use 8-bit alignment
+      p = heap_caps_malloc_prefer(n * sizeof(T), 2, 
+                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, 
+                                  MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    
     if (!p) {
       throw std::bad_alloc();
     }
