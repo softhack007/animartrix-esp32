@@ -28,8 +28,7 @@ License CC BY-NC 3.0
 // add this includes to your main sketch #include <FastLED.h>
 
 // Custom allocator for ESP32 with PSRAM to ensure vector arrays are allocated in PSRAM
-#ifdef ESP32
-#if defined(BOARD_HAS_PSRAM) && defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(ESP32) && defined(BOARD_HAS_PSRAM) && defined(CONFIG_IDF_TARGET_ESP32S3)
 #include <esp_heap_caps.h>
 #include <limits>
 
@@ -106,13 +105,10 @@ template <typename T>
 using psram_vector = std::vector<T, PSRAMAllocator<T>>;
 
 #else
-// Fallback to standard vector when PSRAM is not available on ESP32
-// This ensures compatibility with ESP32 boards without PSRAM
-template <typename T>
-using psram_vector = std::vector<T>;
-#endif
-#else
-// Fallback to standard vector for non-ESP32 platforms (Teensy, etc.)
+// Fallback to standard vector for all other cases:
+// - ESP32 without PSRAM
+// - ESP32 non-S3 variants (S2, C3, etc.)
+// - Non-ESP32 platforms (Teensy, etc.)
 // This ensures the code compiles on all platforms without modification
 template <typename T>
 using psram_vector = std::vector<T>;
