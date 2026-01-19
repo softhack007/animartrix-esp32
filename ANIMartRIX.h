@@ -36,6 +36,17 @@ template <typename T>
 class PSRAMAllocator {
 public:
   using value_type = T;
+  using size_type = std::size_t;
+  using difference_type = std::ptrdiff_t;
+  using pointer = T*;
+  using const_pointer = const T*;
+  using reference = T&;
+  using const_reference = const T&;
+  
+  template <typename U>
+  struct rebind {
+    using other = PSRAMAllocator<U>;
+  };
   
   PSRAMAllocator() noexcept {}
   
@@ -46,7 +57,7 @@ public:
     if (n > std::size_t(-1) / sizeof(T)) {
       throw std::bad_alloc();
     }
-    void* p = ps_malloc(n * sizeof(T));
+    void* p = heap_caps_malloc(n * sizeof(T), MALLOC_CAP_SPIRAM);
     if (!p) {
       throw std::bad_alloc();
     }
@@ -54,7 +65,7 @@ public:
   }
   
   void deallocate(T* p, std::size_t) noexcept {
-    free(p);
+    heap_caps_free(p);
   }
 };
 
