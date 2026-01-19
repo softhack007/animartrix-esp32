@@ -93,12 +93,14 @@ template <typename T>
 using psram_vector = std::vector<T, PSRAMAllocator<T>>;
 
 #else
-// Fallback to standard vector when PSRAM is not available
+// Fallback to standard vector when PSRAM is not available on ESP32
+// This ensures compatibility with ESP32 boards without PSRAM
 template <typename T>
 using psram_vector = std::vector<T>;
 #endif
 #else
-// Fallback to standard vector for non-ESP32 platforms
+// Fallback to standard vector for non-ESP32 platforms (Teensy, etc.)
+// This ensures the code compiles on all platforms without modification
 template <typename T>
 using psram_vector = std::vector<T>;
 #endif
