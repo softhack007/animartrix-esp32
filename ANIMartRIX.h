@@ -37,7 +37,9 @@ License CC BY-NC 3.0
 // on ESP32S3 boards with PSRAM support. This ensures that large lookup tables
 // use PSRAM instead of internal RAM, which is limited. Each row of the 2D vector
 // is typically ~256 bytes, and without this allocator, the framework would allocate
-// them in internal RAM instead of PSRAM.
+// them in internal RAM instead of PSRAM. For performance, this allocator is only
+// applied to the inner vectors (rows), while the outer vector uses standard allocation.
+// The allocator uses heap_caps_malloc_prefer() to try PSRAM first, with fallback to RAM.
 template <typename T>
 class PSRAMAllocator {
 public:
@@ -63,7 +65,8 @@ public:
     if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
       throw std::bad_alloc();
     }
-    void* p = heap_caps_malloc(n * sizeof(T), MALLOC_CAP_SPIRAM);
+    // Use heap_caps_malloc_prefer to try PSRAM first, then fall back to internal RAM
+    void* p = heap_caps_malloc_prefer(n * sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_8BIT);
     if (!p) {
       throw std::bad_alloc();
     }
@@ -175,8 +178,8 @@ float radial_filter_radius = 23.0;      // on 32x32, use 11 for 16x16
 
 bool  serpentine;
 
-psram_vector<psram_vector<float>> polar_theta;        // look-up table for polar angles
-psram_vector<psram_vector<float>> distance;           // look-up table for polar distances
+std::vector<psram_vector<float>> polar_theta;        // look-up table for polar angles
+std::vector<psram_vector<float>> distance;           // look-up table for polar distances
 
 unsigned long a, b, c;                  // for time measurements
 
