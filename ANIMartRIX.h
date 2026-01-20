@@ -38,7 +38,7 @@ License CC BY-NC 3.0
 // is typically ~256 bytes, and without this allocator, the framework would allocate
 // them in internal RAM instead of PSRAM. For performance, this allocator is only
 // applied to the inner vectors (rows), while the outer vector uses standard allocation.
-// The allocator uses heap_caps_malloc_prefer() to try PSRAM first, with fallback to RAM.
+// The allocator uses heap_caps_calloc_prefer() to try PSRAM first, with fallback to RAM.
 template <typename T>
 class PSRAMAllocator {
 public:
@@ -57,12 +57,14 @@ public:
 
   T* allocate(std::size_t n) {
     if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) throw std::bad_alloc();
-    
+
     // Use heap_caps_malloc_prefer to try PSRAM first, then fall back to internal RAM.
     // The second argument '2' is the number of capability options to try.
-	// update: IRAM option disabled - apparently we cannot store float in IRAM (LoadStoreError)
-    // https://github.com/espressif/esp-idf/issues/3036, https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/mem_alloc.html#bit-accessible-memory
-	// "Please note that on ESP32 series chips, MALLOC_CAP_32BIT cannot be used for storing floating-point variables"
+    // update: IRAM option disabled - apparently we cannot store float in IRAM (LoadStoreError)
+    // https://github.com/espressif/esp-idf/issues/3036, 
+	// https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/mem_alloc.html#bit-accessible-memory
+    // "Please note that on ESP32 series chips, MALLOC_CAP_32BIT cannot be used for storing floating-point variables"
+
     T* p;
     p = (T*) heap_caps_calloc_prefer(n, sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
     if (!p) throw std::bad_alloc();
@@ -74,7 +76,8 @@ public:
   T* reallocate(T* p, std::size_t n) {
     if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) throw std::bad_alloc();
 
-	// IRAM option disabled until the risk of "LoadStoreError" is clarified - see allocate()
+    // IRAM option disabled until the risk of "LoadStoreError" is clarified - see allocate()
+
     T* res;
     res = (T*) heap_caps_realloc_prefer(p, n * sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
     if (!res) throw std::bad_alloc();
@@ -340,7 +343,7 @@ return lerp(w,lerp(v,lerp(u, grad(P(AA  ), x, y, z),    /* AND ADD */
 
 void calculate_oscillators(const oscillators &timings) const {
 
-  double runtime = millis() * timings.master_speed * speed_factor;  // global anaimation speed
+  double runtime = millis() * timings.master_speed * speed_factor;  // global animation speed
 
   for (int i = 0; i < num_oscillators; i++) {
     
