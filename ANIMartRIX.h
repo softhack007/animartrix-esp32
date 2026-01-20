@@ -59,26 +59,19 @@ public:
     if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) throw std::bad_alloc();
     
     // Use heap_caps_malloc_prefer to try PSRAM first, then fall back to internal RAM.
-    // The second argument '2' is the number of capability pairs to try.
+    // The second argument '3' is the number of capability options to try.
     // For types with size that is a multiple of 4 bytes (like float, int32_t, double),
-    // use MALLOC_CAP_32BIT for proper 32-bit alignment.
+    // use MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT to indicate we accept 32-bit only IRAM
+    // https://docs.espressif.com/projects/esp-idf/en/release-v4.4/esp32/api-reference/system/mem_alloc.html#bit-accessible-memory .
     // For other types (like char, short), use MALLOC_CAP_8BIT which is less restrictive.
     constexpr size_t ALIGNMENT_THRESHOLD = 4;
-    void* p;
+    T* p;
     if ((sizeof(T) % ALIGNMENT_THRESHOLD) == 0) {
-      // Types with size multiple of 4 bytes: use 32-bit alignment for optimal performance
-      p = heap_caps_malloc_prefer(n * sizeof(T), 2, 
-                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_32BIT, 
-                                  MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT);
+      // Types with size multiple of 4 bytes: request 32bit capable IRAM as first fallback
+      p = (T*) heap_caps_calloc_prefer(n, sizeof(T), 3, MALLOC_CAP_SPIRAM, MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT, MALLOC_CAP_DEFAULT);
     } else {
       // Other types: use 8-bit alignment
-      p = heap_caps_malloc_prefer(n * sizeof(T), 2, 
-                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, 
-                                  MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    }
-    
-    if (!p) {
-      throw std::bad_alloc();
+      p = (T*) heap_caps_calloc_prefer(n, sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
     }
     if (!p) throw std::bad_alloc();
     return static_cast<T*>(p);
