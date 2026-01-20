@@ -28,11 +28,11 @@ License CC BY-NC 3.0
 // add this includes to your main sketch #include <FastLED.h>
 
 // Custom allocator for ESP32 (especially with PSRAM) 
-// to ensure big vector arrays are allocated in PSRAM if availeable
+// to ensure big vector arrays are allocated in PSRAM if available
 #if defined(ESP32)
 #include <esp_heap_caps.h>
 #include <limits>
-// PSRAMAllocator: Custom allocator that forces allocation into PSRAM (external RAM) if availeable.
+// PSRAMAllocator: Custom allocator that forces allocation into PSRAM (external RAM) if available.
 // on ESP32 boards with PSRAM support. This ensures that large lookup tables
 // use PSRAM instead of internal RAM, which is limited. Each row of the 2D vector
 // is typically ~256 bytes, and without this allocator, the framework would allocate
