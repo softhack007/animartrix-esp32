@@ -27,13 +27,13 @@ License CC BY-NC 3.0
 #include <vector>
 // add this includes to your main sketch #include <FastLED.h>
 
-// Custom allocator for ESP32 with PSRAM to ensure vector arrays are allocated in PSRAM
-#if defined(ESP32) && defined(BOARD_HAS_PSRAM) && defined(CONFIG_IDF_TARGET_ESP32S3)
+// Custom allocator for ESP32 (especially with PSRAM) 
+// to ensure big vector arrays are allocated in PSRAM if availeable
+#if defined(ESP32)
 #include <esp_heap_caps.h>
 #include <limits>
-
-// PSRAMAllocator: Custom allocator that forces allocation into PSRAM (external RAM)
-// on ESP32S3 boards with PSRAM support. This ensures that large lookup tables
+// PSRAMAllocator: Custom allocator that forces allocation into PSRAM (external RAM) if availeable.
+// on ESP32 boards with PSRAM support. This ensures that large lookup tables
 // use PSRAM instead of internal RAM, which is limited. Each row of the 2D vector
 // is typically ~256 bytes, and without this allocator, the framework would allocate
 // them in internal RAM instead of PSRAM. For performance, this allocator is only
@@ -56,9 +56,7 @@ public:
   PSRAMAllocator(const PSRAMAllocator<U>&) noexcept {}
   
   T* allocate(std::size_t n) {
-    if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
-      throw std::bad_alloc();
-    }
+    if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) throw std::bad_alloc();
     
     // Use heap_caps_malloc_prefer to try PSRAM first, then fall back to internal RAM.
     // The second argument '2' is the number of capability pairs to try.
@@ -82,6 +80,7 @@ public:
     if (!p) {
       throw std::bad_alloc();
     }
+    if (!p) throw std::bad_alloc();
     return static_cast<T*>(p);
   }
   
@@ -91,28 +90,22 @@ public:
 };
 
 template <typename T, typename U>
-bool operator==(const PSRAMAllocator<T>&, const PSRAMAllocator<U>&) noexcept {
-  return true;
-}
+bool operator==(const PSRAMAllocator<T>&, const PSRAMAllocator<U>&) noexcept { return true; }
 
 template <typename T, typename U>
-bool operator!=(const PSRAMAllocator<T>&, const PSRAMAllocator<U>&) noexcept {
-  return false;
-}
+bool operator!=(const PSRAMAllocator<T>&, const PSRAMAllocator<U>&) noexcept { return false; }
 
 // Define the vector type to use
 template <typename T>
 using psram_vector = std::vector<T, PSRAMAllocator<T>>;
 
 #else
-// Fallback to standard vector for all other cases:
-// - ESP32 without PSRAM
-// - ESP32 non-S3 variants (S2, C3, etc.)
-// - Non-ESP32 platforms (Teensy, etc.)
+// Fallback to standard vector for non-ESP32 platforms (Teensy, etc.)
 // This ensures the code compiles on all platforms without modification
 template <typename T>
 using psram_vector = std::vector<T>;
 #endif
+
 
 #define num_oscillators 10
 
