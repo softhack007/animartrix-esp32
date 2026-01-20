@@ -76,7 +76,25 @@ public:
     if (!p) throw std::bad_alloc();
     return static_cast<T*>(p);
   }
-  
+
+  // re-allocator - same logic as allocate(), but uses heap_caps_realloc_prefer to resize 
+  T* reallocate(T* p, std::size_t n) {
+    if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) throw std::bad_alloc();
+
+    constexpr size_t ALIGNMENT_THRESHOLD = 4;
+    T* res;
+    if ((sizeof(T) % ALIGNMENT_THRESHOLD) == 0) {
+      // Types with size multiple of 4 bytes: request 32bit capable IRAM as first fallback
+      res = (T*) heap_caps_realloc_prefer(p, n * sizeof(T), 3, MALLOC_CAP_SPIRAM, MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT, MALLOC_CAP_DEFAULT);
+    } else {
+      // Other types: use 8-bit alignment
+      res = (T*) heap_caps_malloc_prefer(p, n * sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
+    }
+    if (!res) throw std::bad_alloc();
+    return res;
+  }
+
+  // deallocator to release memory
   void deallocate(T* p, std::size_t) noexcept {
     heap_caps_free(p);
   }
