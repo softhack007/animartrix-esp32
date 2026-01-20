@@ -27,6 +27,87 @@ License CC BY-NC 3.0
 #include <vector>
 // add this includes to your main sketch #include <FastLED.h>
 
+// Custom allocator for ESP32 (especially with PSRAM) 
+// to ensure big vector arrays are allocated in PSRAM if available
+#if defined(ESP32)
+#include <esp_heap_caps.h>
+#include <limits>
+// PSRAMAllocator: Custom allocator that forces allocation into PSRAM (external RAM) if available.
+// on ESP32 boards with PSRAM support. This ensures that large lookup tables
+// use PSRAM instead of internal RAM, which is limited. Each row of the 2D vector
+// is typically ~256 bytes, and without this allocator, the framework would allocate
+// them in internal RAM instead of PSRAM. For performance, this allocator is only
+// applied to the inner vectors (rows), while the outer vector uses standard allocation.
+// The allocator uses heap_caps_calloc_prefer() to try PSRAM first, with fallback to RAM.
+template <typename T>
+class PSRAMAllocator {
+public:
+  using value_type = T;
+  
+  // rebind is required for C++11/C++14 compatibility
+  template <typename U>
+  struct rebind {
+    using other = PSRAMAllocator<U>;
+  };
+  
+  PSRAMAllocator() noexcept = default;
+  
+  template <typename U>
+  PSRAMAllocator(const PSRAMAllocator<U>&) noexcept {}
+
+  T* allocate(std::size_t n) {
+    if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) throw std::bad_alloc();
+
+    // Use heap_caps_malloc_prefer to try PSRAM first, then fall back to internal RAM.
+    // The second argument '2' is the number of capability options to try.
+    // update: IRAM option disabled - apparently we cannot store float in IRAM (LoadStoreError)
+    // https://github.com/espressif/esp-idf/issues/3036, 
+	// https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/mem_alloc.html#bit-accessible-memory
+    // "Please note that on ESP32 series chips, MALLOC_CAP_32BIT cannot be used for storing floating-point variables"
+
+    T* p;
+    p = (T*) heap_caps_calloc_prefer(n, sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
+    if (!p) throw std::bad_alloc();
+    return p;
+  }
+
+  // re-allocator - same logic as allocate(), but uses heap_caps_realloc_prefer to resize
+  // Seems that std::vector won't call this, but the function is left here for custom use - for example with ArduinoJSON
+  T* reallocate(T* p, std::size_t n) {
+    if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) throw std::bad_alloc();
+
+    // IRAM option disabled until the risk of "LoadStoreError" is clarified - see allocate()
+
+    T* res;
+    res = (T*) heap_caps_realloc_prefer(p, n * sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
+    if (!res) throw std::bad_alloc();
+    return res;
+  }
+
+  // deallocator to release memory
+  void deallocate(T* p, std::size_t) noexcept {
+    heap_caps_free(p);
+  }
+};
+
+template <typename T, typename U>
+bool operator==(const PSRAMAllocator<T>&, const PSRAMAllocator<U>&) noexcept { return true; }
+
+template <typename T, typename U>
+bool operator!=(const PSRAMAllocator<T>&, const PSRAMAllocator<U>&) noexcept { return false; }
+
+// Define the vector type to use
+template <typename T>
+using psram_vector = std::vector<T, PSRAMAllocator<T>>;
+
+#else
+// Fallback to standard vector for non-ESP32 platforms (Teensy, etc.)
+// This ensures the code compiles on all platforms without modification
+template <typename T>
+using psram_vector = std::vector<T>;
+#endif
+
+
 #define num_oscillators 10
 
 
@@ -102,8 +183,8 @@ float radial_filter_radius = 23.0;      // on 32x32, use 11 for 16x16
 
 bool  serpentine;
 
-std::vector<std::vector<float>> polar_theta;        // look-up table for polar angles
-std::vector<std::vector<float>> distance;           // look-up table for polar distances
+std::vector<psram_vector<float>> polar_theta;        // look-up table for polar angles
+std::vector<psram_vector<float>> distance;           // look-up table for polar distances
 
 unsigned long a, b, c;                  // for time measurements
 
@@ -171,13 +252,13 @@ void setSpeedFactor(float speed)  {
 
 // Dynamic darkening methods:
 
-float subtract(float &a, float&b) {
+static float subtract(float a, float b) {
 
   return a - b;
 }
 
 
-float multiply(float &a, float&b) {
+static float multiply(float a, float b) {
 
   return a * b / 255.f;
 }
@@ -186,7 +267,7 @@ float multiply(float &a, float&b) {
 // makes low brightness darker
 // sets the black point high = more contrast 
 // animation.low_limit should be 0 for best results
-float colorburn(float &a, float&b) {  
+static float colorburn(float a, float b) {
 
   return (1-((1-a/255.f) / (b/255.f)))*255.f;
 }
@@ -194,7 +275,7 @@ float colorburn(float &a, float&b) {
 
 // Dynamic brightening methods
 
-float add(float &a, float&b) {
+static float add(float a, float b) {
 
   return a + b;
 }
@@ -202,13 +283,13 @@ float add(float &a, float&b) {
 
 // makes bright even brighter
 // reduces contrast
-float screen(float &a, float&b) {
+static float screen(float a, float b) {
 
   return (1 - (1 - a/255.f) * (1 - b/255.f))*255.f;
 }
 
 
-float colordodge(float &a, float&b) {  
+static float colordodge(float a, float b) {
 
   return (a/(255.f-b)) * 255.f;
 }
@@ -219,9 +300,9 @@ float colordodge(float &a, float&b) {
  -  make permutation constant byte, obsoletes init(), lookup % 256
 */
 
-float fade(float t){ return t * t * t * (t * (t * 6 - 15) + 10); }
-float lerp(float t, float a, float b){ return a + t * (b - a); }
-float grad(int hash, float x, float y, float z)
+static float fade(float t){ return t * t * t * (t * (t * 6 - 15) + 10); }
+static float lerp(float t, float a, float b){ return a + t * (b - a); }
+static float grad(int hash, float x, float y, float z)
 {
 int    h = hash & 15;          /* CONVERT LO 4 BITS OF HASH CODE */
 float  u = h < 8 ? x : y,      /* INTO 12 GRADIENT DIRECTIONS.   */
@@ -231,7 +312,7 @@ return ((h&1) == 0 ? u : -u) + ((h&2) == 0 ? v : -v);
 
 #define P(x) pNoise[(x) & 255]
 
-float pnoise(float x, float y, float z) {
+static float pnoise(float x, float y, float z) {
   
 int   X = (int)floorf(x) & 255,             /* FIND UNIT CUBE THAT */
       Y = (int)floorf(y) & 255,             /* CONTAINS POINT.     */
@@ -260,9 +341,9 @@ return lerp(w,lerp(v,lerp(u, grad(P(AA  ), x, y, z),    /* AND ADD */
 }
 
 
-void calculate_oscillators(oscillators &timings) { 
+void calculate_oscillators(const oscillators &timings) const {
 
-  double runtime = millis() * timings.master_speed * speed_factor;  // global anaimation speed
+  double runtime = millis() * timings.master_speed * speed_factor;  // global animation speed
 
   for (int i = 0; i < num_oscillators; i++) {
     
@@ -278,7 +359,7 @@ void calculate_oscillators(oscillators &timings) {
 }
 
 
-void run_default_oscillators(){
+void run_default_oscillators() const {
 
   timings.ratio[0] = 1;           // speed ratios for the oscillators, higher values = faster transitions
   timings.ratio[1] = 2;
@@ -311,7 +392,7 @@ void run_default_oscillators(){
 // Calculate the noise value at this point based on the 5 dimensional manipulation of 
 // the underlaying coordinates.
 
-float render_value(render_parameters &animation) {
+static float render_value(const render_parameters &animation) {
 
   // convert polar coordinates back to cartesian ones
 
@@ -341,8 +422,8 @@ float render_value(render_parameters &animation) {
 
 void render_polar_lookup_table(float cx, float cy) {
 
-  polar_theta.resize(num_x, std::vector<float>(num_y, 0.0f));
-  distance.resize(num_x, std::vector<float>(num_y, 0.0f));
+  polar_theta.resize(num_x, psram_vector<float>(num_y, 0.0f));
+  distance.resize(num_x, psram_vector<float>(num_y, 0.0f));
 
   for (int xx = 0; xx < num_x; xx++) {
     for (int yy = 0; yy < num_y; yy++) {
@@ -361,7 +442,7 @@ void render_polar_lookup_table(float cx, float cy) {
 // float mapping maintaining 32 bit precision
 // we keep values with high resolution for potential later usage
 
-float map_float(float x, float in_min, float in_max, float out_min, float out_max) { 
+static float map_float(float x, float in_min, float in_max, float out_min, float out_max) {
   
   float result = (x-in_min) * (out_max-out_min) / (in_max-in_min) + out_min;
   if (result < out_min) result = out_min;
@@ -390,7 +471,7 @@ void write_pixel_to_framebuffer(int x, int y, rgb &pixel) {
 // This enables to play freely with random equations for the colormapping
 // without causing flicker by accidentally missing the valid target range.
 
-rgb rgb_sanity_check(rgb &pixel) {
+static rgb rgb_sanity_check(rgb &pixel) {
 
       // rescue data if possible, return absolute value
       //if (pixel.red < 0)     pixel.red = fabsf(pixel.red);
@@ -414,10 +495,12 @@ rgb rgb_sanity_check(rgb &pixel) {
 
 // find the right led index according to you LED matrix wiring
 
-uint16_t xy(uint8_t x, uint8_t y) {
+uint16_t xy(uint8_t x, uint8_t y) const {
+#ifndef ANIMartRIX_NO_SERPENTINE  // remove serpentine calculation code (a bit faster)
   if (serpentine &&  y & 1)                             // check last bit
     return (y + 1) * num_x - 1 - x;      // reverse every second line for a serpentine lled layout
   else
+#endif
     return y * num_x + x;                // use this equation only for a line by line layout
 }                                        // remove the previous 3 lines of code in this case
 
