@@ -77,7 +77,8 @@ public:
     return static_cast<T*>(p);
   }
 
-  // re-allocator - same logic as allocate(), but uses heap_caps_realloc_prefer to resize 
+  // re-allocator - same logic as allocate(), but uses heap_caps_realloc_prefer to resize
+  // Seems that std::vector won't call this, but the function is left here for custom use - for example with ArduinoJSON
   T* reallocate(T* p, std::size_t n) {
     if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) throw std::bad_alloc();
 
