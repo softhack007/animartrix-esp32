@@ -60,7 +60,7 @@ public:
     
     // Use heap_caps_malloc_prefer to try PSRAM first, then fall back to internal RAM.
     // The second argument '2' is the number of capability options to try.
-	// update: IRAM option disabled - appearently we cannot store float in IRAM (LoadStoreError)
+	// update: IRAM option disabled - apparently we cannot store float in IRAM (LoadStoreError)
     // https://github.com/espressif/esp-idf/issues/3036, https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/mem_alloc.html#bit-accessible-memory
 	// "Please note that on ESP32 series chips, MALLOC_CAP_32BIT cannot be used for storing floating-point variables"
     T* p;
