@@ -88,7 +88,7 @@ public:
       res = (T*) heap_caps_realloc_prefer(p, n * sizeof(T), 3, MALLOC_CAP_SPIRAM, MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT, MALLOC_CAP_DEFAULT);
     } else {
       // Other types: use 8-bit alignment
-      res = (T*) heap_caps_malloc_prefer(p, n * sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
+      res = (T*) heap_caps_realloc_prefer(p, n * sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
     }
     if (!res) throw std::bad_alloc();
     return res;
