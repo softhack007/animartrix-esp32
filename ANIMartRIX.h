@@ -74,7 +74,7 @@ public:
       p = (T*) heap_caps_calloc_prefer(n, sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
     }
     if (!p) throw std::bad_alloc();
-    return static_cast<T*>(p);
+    return p;
   }
 
   // re-allocator - same logic as allocate(), but uses heap_caps_realloc_prefer to resize
