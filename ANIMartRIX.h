@@ -506,9 +506,11 @@ static rgb rgb_sanity_check(rgb &pixel) {
 // find the right led index according to you LED matrix wiring
 
 uint16_t xy(uint8_t x, uint8_t y) const {
+#ifndef ANIMartRIX_NO_SERPENTINE  // remove serpentine calculation code (a bit faster)
   if (serpentine &&  y & 1)                             // check last bit
     return (y + 1) * num_x - 1 - x;      // reverse every second line for a serpentine lled layout
   else
+#endif
     return y * num_x + x;                // use this equation only for a line by line layout
 }                                        // remove the previous 3 lines of code in this case
 
