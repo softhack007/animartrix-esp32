@@ -356,7 +356,7 @@ void calculate_oscillators(const oscillators &timings) const {
 }
 
 
-void run_default_oscillators() const{
+void run_default_oscillators() const {
 
   timings.ratio[0] = 1;           // speed ratios for the oscillators, higher values = faster transitions
   timings.ratio[1] = 2;
