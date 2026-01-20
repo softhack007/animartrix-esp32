@@ -262,13 +262,13 @@ void setSpeedFactor(float speed)  {
 
 // Dynamic darkening methods:
 
-float subtract(float &a, float&b) {
+static float subtract(float a, float b) {
 
   return a - b;
 }
 
 
-float multiply(float &a, float&b) {
+static float multiply(float a, float b) {
 
   return a * b / 255.f;
 }
@@ -277,7 +277,7 @@ float multiply(float &a, float&b) {
 // makes low brightness darker
 // sets the black point high = more contrast 
 // animation.low_limit should be 0 for best results
-float colorburn(float &a, float&b) {  
+static float colorburn(float a, float b) {
 
   return (1-((1-a/255.f) / (b/255.f)))*255.f;
 }
@@ -285,7 +285,7 @@ float colorburn(float &a, float&b) {
 
 // Dynamic brightening methods
 
-float add(float &a, float&b) {
+static float add(float a, float b) {
 
   return a + b;
 }
@@ -293,13 +293,13 @@ float add(float &a, float&b) {
 
 // makes bright even brighter
 // reduces contrast
-float screen(float &a, float&b) {
+static float screen(float a, float b) {
 
   return (1 - (1 - a/255.f) * (1 - b/255.f))*255.f;
 }
 
 
-float colordodge(float &a, float&b) {  
+static float colordodge(float a, float b) {
 
   return (a/(255.f-b)) * 255.f;
 }
@@ -310,9 +310,9 @@ float colordodge(float &a, float&b) {
  -  make permutation constant byte, obsoletes init(), lookup % 256
 */
 
-float fade(float t){ return t * t * t * (t * (t * 6 - 15) + 10); }
-float lerp(float t, float a, float b){ return a + t * (b - a); }
-float grad(int hash, float x, float y, float z)
+static float fade(float t){ return t * t * t * (t * (t * 6 - 15) + 10); }
+static float lerp(float t, float a, float b){ return a + t * (b - a); }
+static float grad(int hash, float x, float y, float z)
 {
 int    h = hash & 15;          /* CONVERT LO 4 BITS OF HASH CODE */
 float  u = h < 8 ? x : y,      /* INTO 12 GRADIENT DIRECTIONS.   */
@@ -322,7 +322,7 @@ return ((h&1) == 0 ? u : -u) + ((h&2) == 0 ? v : -v);
 
 #define P(x) pNoise[(x) & 255]
 
-float pnoise(float x, float y, float z) {
+static float pnoise(float x, float y, float z) {
   
 int   X = (int)floorf(x) & 255,             /* FIND UNIT CUBE THAT */
       Y = (int)floorf(y) & 255,             /* CONTAINS POINT.     */
@@ -351,7 +351,7 @@ return lerp(w,lerp(v,lerp(u, grad(P(AA  ), x, y, z),    /* AND ADD */
 }
 
 
-void calculate_oscillators(oscillators &timings) { 
+void calculate_oscillators(const oscillators &timings) const {
 
   double runtime = millis() * timings.master_speed * speed_factor;  // global anaimation speed
 
@@ -369,7 +369,7 @@ void calculate_oscillators(oscillators &timings) {
 }
 
 
-void run_default_oscillators(){
+void run_default_oscillators() const{
 
   timings.ratio[0] = 1;           // speed ratios for the oscillators, higher values = faster transitions
   timings.ratio[1] = 2;
@@ -402,7 +402,7 @@ void run_default_oscillators(){
 // Calculate the noise value at this point based on the 5 dimensional manipulation of 
 // the underlaying coordinates.
 
-float render_value(render_parameters &animation) {
+static float render_value(const render_parameters &animation) {
 
   // convert polar coordinates back to cartesian ones
 
@@ -452,7 +452,7 @@ void render_polar_lookup_table(float cx, float cy) {
 // float mapping maintaining 32 bit precision
 // we keep values with high resolution for potential later usage
 
-float map_float(float x, float in_min, float in_max, float out_min, float out_max) { 
+static float map_float(float x, float in_min, float in_max, float out_min, float out_max) {
   
   float result = (x-in_min) * (out_max-out_min) / (in_max-in_min) + out_min;
   if (result < out_min) result = out_min;
@@ -481,7 +481,7 @@ void write_pixel_to_framebuffer(int x, int y, rgb &pixel) {
 // This enables to play freely with random equations for the colormapping
 // without causing flicker by accidentally missing the valid target range.
 
-rgb rgb_sanity_check(rgb &pixel) {
+static rgb rgb_sanity_check(rgb &pixel) {
 
       // rescue data if possible, return absolute value
       //if (pixel.red < 0)     pixel.red = fabsf(pixel.red);
@@ -505,7 +505,7 @@ rgb rgb_sanity_check(rgb &pixel) {
 
 // find the right led index according to you LED matrix wiring
 
-uint16_t xy(uint8_t x, uint8_t y) {
+uint16_t xy(uint8_t x, uint8_t y) const {
   if (serpentine &&  y & 1)                             // check last bit
     return (y + 1) * num_x - 1 - x;      // reverse every second line for a serpentine lled layout
   else
