@@ -56,8 +56,10 @@ public:
   PSRAMAllocator(const PSRAMAllocator<U>&) noexcept {}
 
   T* allocate(std::size_t n) {
+    #if __cpp_exceptions
     if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) throw std::bad_alloc();
-
+	#endif
+	  
     // Use heap_caps_malloc_prefer to try PSRAM first, then fall back to internal RAM.
     // The second argument '2' is the number of capability options to try.
     // update: IRAM option disabled - apparently we cannot store float in IRAM (LoadStoreError)
@@ -67,15 +69,18 @@ public:
 
     T* p;
     p = (T*) heap_caps_calloc_prefer(n, sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
-    if (!p) throw std::bad_alloc();
+    #if __cpp_exceptions
+	if (!p) throw std::bad_alloc();
+	#endif
     return p;
   }
 
   // re-allocator - same logic as allocate(), but uses heap_caps_realloc_prefer to resize
   // Seems that std::vector won't call this, but the function is left here for custom use - for example with ArduinoJSON
   T* reallocate(T* p, std::size_t n) {
+    #if __cpp_exceptions
     if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) throw std::bad_alloc();
-
+    #endif
     // IRAM option disabled until the risk of "LoadStoreError" is clarified - see allocate()
 
     T* res;
