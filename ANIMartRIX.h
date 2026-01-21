@@ -85,7 +85,9 @@ public:
 
     T* res;
     res = (T*) heap_caps_realloc_prefer(p, n * sizeof(T), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
+    #if __cpp_exceptions
     if (!res) throw std::bad_alloc();
+    #endif
     return res;
   }
 
